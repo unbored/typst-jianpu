@@ -268,30 +268,72 @@
   count
 }
 
+#let note-gaps-from-extra(measure, extra-note-gap) = {
+  let gaps = ()
+  for _ in range(0, calc.max(measure.notes.len() - 1, 0)) {
+    gaps.push(extra-note-gap)
+  }
+  gaps
+}
+
+#let zero-note-gaps(measure) = {
+  note-gaps-from-extra(measure, 0pt)
+}
+
+#let note-gap-at(note-gaps, index) = {
+  if index < note-gaps.len() {
+    note-gaps.at(index)
+  } else {
+    0pt
+  }
+}
+
+#let measure-side-gaps(leading-gap, bar-gap, has-bar) = {
+  if has-bar {
+    let side-gap = (leading-gap + bar-gap) / 2
+    (leading: side-gap, trailing: side-gap)
+  } else {
+    (leading: leading-gap, trailing: 0pt)
+  }
+}
+
 #let render-note-row(
   measure,
   extra-note-gap: 0pt,
+  note-gaps: none,
+  leading-gap: 0pt,
+  trailing-bar-gap: 6pt,
   bar-width: 5pt,
   bar-gap: 6pt,
   note-head-width: 12pt,
 ) = {
   let columns = ()
   let cells = ()
+  let actual-note-gaps = if note-gaps == none {
+    note-gaps-from-extra(measure, extra-note-gap)
+  } else {
+    note-gaps
+  }
+
+  if leading-gap > 0pt {
+    columns.push(leading-gap)
+    cells.push([])
+  }
 
   for (index, note) in measure.notes.enumerate() {
     columns.push(note.min-width)
     cells.push(box(width: note.min-width)[
-      #box(width: note-head-width, align(center)[#note-text(note)])
+      #align(center)[#box(width: note-head-width, align(center)[#note-text(note)])]
     ])
 
     if index < measure.notes.len() - 1 {
-      columns.push(extra-note-gap)
+      columns.push(note-gap-at(actual-note-gaps, index))
       cells.push([])
     }
   }
 
   if measure.bar {
-    columns.push(bar-gap)
+    columns.push(trailing-bar-gap)
     cells.push([])
     columns.push(bar-width)
     cells.push(align(center)[|])
@@ -305,6 +347,9 @@
 #let render-upper-dot-row(
   measure,
   extra-note-gap: 0pt,
+  note-gaps: none,
+  leading-gap: 0pt,
+  trailing-bar-gap: 6pt,
   bar-width: 5pt,
   bar-gap: 6pt,
   note-head-width: 12pt,
@@ -319,28 +364,40 @@
   } else {
     slot-height
   }
+  let actual-note-gaps = if note-gaps == none {
+    note-gaps-from-extra(measure, extra-note-gap)
+  } else {
+    note-gaps
+  }
+
+  if leading-gap > 0pt {
+    columns.push(leading-gap)
+    cells.push([])
+  }
 
   for (index, note) in measure.notes.enumerate() {
     columns.push(note.min-width)
     cells.push(box(width: note.min-width)[
-      #octave-dot-slot(
-        note.octave-up,
-        note-head-width,
-        height: actual-slot-height,
-        valign: bottom,
-        dot-radius: dot-radius,
-        dot-gap: dot-gap,
-      )
+      #align(center)[
+        #octave-dot-slot(
+          note.octave-up,
+          note-head-width,
+          height: actual-slot-height,
+          valign: bottom,
+          dot-radius: dot-radius,
+          dot-gap: dot-gap,
+        )
+      ]
     ])
 
     if index < measure.notes.len() - 1 {
-      columns.push(extra-note-gap)
+      columns.push(note-gap-at(actual-note-gaps, index))
       cells.push([])
     }
   }
 
   if measure.bar {
-    columns.push(bar-gap + bar-width)
+    columns.push(trailing-bar-gap + bar-width)
     cells.push([])
   }
 
@@ -349,12 +406,18 @@
   ]
 }
 
-#let beam-group-width(measure, start, end, extra-note-gap: 0pt) = {
+#let beam-group-width(measure, start, end, extra-note-gap: 0pt, note-gaps: none) = {
   let width = 0pt
+  let actual-note-gaps = if note-gaps == none {
+    note-gaps-from-extra(measure, extra-note-gap)
+  } else {
+    note-gaps
+  }
+
   for index in range(start, end + 1) {
     width += measure.notes.at(index).min-width
     if index < end {
-      width += extra-note-gap
+      width += note-gap-at(actual-note-gaps, index)
     }
   }
   width
@@ -364,6 +427,9 @@
   measure,
   level,
   extra-note-gap: 0pt,
+  note-gaps: none,
+  leading-gap: 0pt,
+  trailing-bar-gap: 6pt,
   bar-width: 5pt,
   bar-gap: 6pt,
   beam-note-width: 12pt,
@@ -373,6 +439,16 @@
   let count = measure.notes.len()
   let columns = ()
   let cells = ()
+  let actual-note-gaps = if note-gaps == none {
+    note-gaps-from-extra(measure, extra-note-gap)
+  } else {
+    note-gaps
+  }
+
+  if leading-gap > 0pt {
+    columns.push(leading-gap)
+    cells.push([])
+  }
 
   while index < count {
     let note = measure.notes.at(index)
@@ -386,12 +462,11 @@
 
       // Draw one whole beam per continuous group at this beam level. Do not
       // split it per note/gap cell: that creates visible seams and y-offsets.
-      let full-width = beam-group-width(measure, start, end, extra-note-gap: extra-note-gap)
-      // A note's digit marks the beginning of its duration box. Therefore
-      // beams start at the first note-head box and end at the last note-head
-      // box, not at the visual center of the duration slot.
-      let first-inset = 0pt
-      let last-inset = calc.max(measure.notes.at(end).min-width - beam-note-width, 0pt)
+      let full-width = beam-group-width(measure, start, end, extra-note-gap: extra-note-gap, note-gaps: actual-note-gaps)
+      // Note heads are centered in their duration boxes, so beams are clipped
+      // to the centered note-head slots instead of the full duration boxes.
+      let first-inset = calc.max((measure.notes.at(start).min-width - beam-note-width) / 2, 0pt)
+      let last-inset = calc.max((measure.notes.at(end).min-width - beam-note-width) / 2, 0pt)
       let line-width = calc.max(full-width - first-inset - last-inset, beam-note-width)
 
       columns.push(first-inset)
@@ -409,13 +484,13 @@
     }
 
     if index < count {
-      columns.push(extra-note-gap)
+      columns.push(note-gap-at(actual-note-gaps, index - 1))
       cells.push([])
     }
   }
 
   if measure.bar {
-    columns.push(bar-gap + bar-width)
+    columns.push(trailing-bar-gap + bar-width)
     cells.push([])
   }
 
@@ -428,6 +503,9 @@
   measure,
   for-beams,
   extra-note-gap: 0pt,
+  note-gaps: none,
+  leading-gap: 0pt,
+  trailing-bar-gap: 6pt,
   bar-width: 5pt,
   bar-gap: 6pt,
   note-head-width: 12pt,
@@ -436,27 +514,39 @@
 ) = {
   let columns = ()
   let cells = ()
+  let actual-note-gaps = if note-gaps == none {
+    note-gaps-from-extra(measure, extra-note-gap)
+  } else {
+    note-gaps
+  }
+
+  if leading-gap > 0pt {
+    columns.push(leading-gap)
+    cells.push([])
+  }
 
   for (index, note) in measure.notes.enumerate() {
     columns.push(note.min-width)
     cells.push(box(width: note.min-width)[
-      #octave-dot-slot(
-        if note.beams == for-beams { note.octave-down } else { 0 },
-        note-head-width,
-        valign: top,
-        dot-radius: dot-radius,
-        dot-gap: dot-gap,
-      )
+      #align(center)[
+        #octave-dot-slot(
+          if note.beams == for-beams { note.octave-down } else { 0 },
+          note-head-width,
+          valign: top,
+          dot-radius: dot-radius,
+          dot-gap: dot-gap,
+        )
+      ]
     ])
 
     if index < measure.notes.len() - 1 {
-      columns.push(extra-note-gap)
+      columns.push(note-gap-at(actual-note-gaps, index))
       cells.push([])
     }
   }
 
   if measure.bar {
-    columns.push(bar-gap + bar-width)
+    columns.push(trailing-bar-gap + bar-width)
     cells.push([])
   }
 
@@ -486,6 +576,8 @@
 #let render-measure(
   measure,
   extra-note-gap: 0pt,
+  note-gaps: none,
+  leading-gap: 0pt,
   bar-width: 5pt,
   bar-gap: 6pt,
   beam-gap: 2pt,
@@ -496,6 +588,12 @@
   upper-dot-height: 0pt,
 ) = {
   let parts = ()
+  let actual-note-gaps = if note-gaps == none {
+    note-gaps-from-extra(measure, extra-note-gap)
+  } else {
+    note-gaps
+  }
+  let side-gaps = measure-side-gaps(leading-gap, bar-gap, measure.bar)
   let lower-dot-reserve = if max-octave-down(measure) > 0 {
     beam-gap + octave-dots-height(max-octave-down(measure), dot-radius: dot-radius, dot-gap: dot-gap)
   } else {
@@ -506,6 +604,9 @@
     parts.push(render-upper-dot-row(
       measure,
       extra-note-gap: extra-note-gap,
+      note-gaps: actual-note-gaps,
+      leading-gap: side-gaps.leading,
+      trailing-bar-gap: side-gaps.trailing,
       bar-width: bar-width,
       bar-gap: bar-gap,
       note-head-width: beam-note-width,
@@ -516,9 +617,9 @@
   }
 
   parts.push(render-layer-with-lower-dots(
-    render-note-row(measure, extra-note-gap: extra-note-gap, bar-width: bar-width, bar-gap: bar-gap, note-head-width: beam-note-width),
+    render-note-row(measure, extra-note-gap: extra-note-gap, note-gaps: actual-note-gaps, leading-gap: side-gaps.leading, trailing-bar-gap: side-gaps.trailing, bar-width: bar-width, bar-gap: bar-gap, note-head-width: beam-note-width),
     lower-dots: if has-lower-dots(measure, 0) {
-      render-lower-dot-row(measure, 0, extra-note-gap: extra-note-gap, bar-width: bar-width, bar-gap: bar-gap, note-head-width: beam-note-width, dot-radius: dot-radius, dot-gap: dot-gap)
+      render-lower-dot-row(measure, 0, extra-note-gap: extra-note-gap, note-gaps: actual-note-gaps, leading-gap: side-gaps.leading, trailing-bar-gap: side-gaps.trailing, bar-width: bar-width, bar-gap: bar-gap, note-head-width: beam-note-width, dot-radius: dot-radius, dot-gap: dot-gap)
     } else {
       none
     },
@@ -528,9 +629,9 @@
   for level in range(1, 4) {
     if has-beam-level(measure, level) {
       parts.push(render-layer-with-lower-dots(
-        render-beam-row(measure, level, extra-note-gap: extra-note-gap, bar-width: bar-width, bar-gap: bar-gap, beam-note-width: beam-note-width, beam-thickness: beam-thickness),
+        render-beam-row(measure, level, extra-note-gap: extra-note-gap, note-gaps: actual-note-gaps, leading-gap: side-gaps.leading, trailing-bar-gap: side-gaps.trailing, bar-width: bar-width, bar-gap: bar-gap, beam-note-width: beam-note-width, beam-thickness: beam-thickness),
         lower-dots: if has-lower-dots(measure, level) {
-          render-lower-dot-row(measure, level, extra-note-gap: extra-note-gap, bar-width: bar-width, bar-gap: bar-gap, note-head-width: beam-note-width, dot-radius: dot-radius, dot-gap: dot-gap)
+          render-lower-dot-row(measure, level, extra-note-gap: extra-note-gap, note-gaps: actual-note-gaps, leading-gap: side-gaps.leading, trailing-bar-gap: side-gaps.trailing, bar-width: bar-width, bar-gap: bar-gap, note-head-width: beam-note-width, dot-radius: dot-radius, dot-gap: dot-gap)
         } else {
           none
         },
@@ -565,9 +666,9 @@
   let inner-gap-count = calc.max(row-note-count(row) - row.len(), 0)
   let measure-gap-count = calc.max(row.len() - 1, 0)
   let gap-count = inner-gap-count + measure-gap-count
-  // This is the current justification model: remaining row width is spread
-  // evenly over note-to-note gaps and measure-to-measure gaps. Note boxes keep
-  // their duration-derived minimum widths.
+  // Row justification first allocates extra width to each measure and to each
+  // measure boundary. Each measure then converts its allocated width into
+  // variable note gaps so note heads are evenly spaced inside that measure.
   let extra-gap = if justify and gap-count > 0 {
     (line-width - min-width) / gap-count
   } else {
@@ -578,10 +679,20 @@
   let upper-dot-height = octave-dots-height(row-max-octave-up(row), dot-radius: dot-radius, dot-gap: dot-gap)
 
   for (index, measure) in row.enumerate() {
-    columns.push(measure-min-width(measure, bar-width: bar-width, bar-gap: bar-gap) + extra-gap * calc.max(measure.notes.len() - 1, 0))
+    let leading-gap = if index == 0 {
+      0pt
+    } else {
+      min-measure-gap + extra-gap
+    }
+    let measure-width = measure-min-width(measure, bar-width: bar-width, bar-gap: bar-gap) + extra-gap * calc.max(measure.notes.len() - 1, 0)
+    let note-gaps = note-gaps-from-extra(measure, extra-gap)
+
+    columns.push(leading-gap + measure-width)
     cells.push(render-measure(
       measure,
       extra-note-gap: extra-gap,
+      note-gaps: note-gaps,
+      leading-gap: leading-gap,
       bar-width: bar-width,
       bar-gap: bar-gap,
       beam-gap: beam-gap,
@@ -591,11 +702,6 @@
       dot-gap: dot-gap,
       upper-dot-height: upper-dot-height,
     ))
-
-    if index < row.len() - 1 {
-      columns.push(min-measure-gap + extra-gap)
-      cells.push([])
-    }
   }
 
   block(width: 100%)[
