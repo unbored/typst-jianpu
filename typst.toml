@@ -1,0 +1,7 @@
+[package]
+name = "jianpu"
+version = "0.1.0"
+entrypoint = "jianpu.typ"
+authors = ["local"]
+license = "MIT"
+description = "A minimal Jianpu renderer for Typst."
