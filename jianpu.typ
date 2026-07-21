@@ -113,6 +113,28 @@
   note.raw.at(0)
 }
 
+#let is-extension-note(note) = {
+  note.raw.at(0) == "-"
+}
+
+#let extension-line(length: 0.72em, thickness: 0.08em) = {
+  // Do not use the font's hyphen/minus glyph for extension notes: it is too
+  // short and sits on the text baseline. Draw a centered rule instead.
+  box(width: length, height: 1em, align(horizon)[
+    #move(dy: -0.08em)[#line(length: 100%, stroke: thickness)]
+  ])
+}
+
+#let note-head(note, note-head-width: 12pt) = {
+  box(width: note-head-width, align(center)[
+    #if is-extension-note(note) {
+      extension-line()
+    } else {
+      note-text(note)
+    }
+  ])
+}
+
 #let beam-line(length: 0.7em, thickness: 0.8pt) = {
   line(length: length, stroke: thickness)
 }
@@ -323,7 +345,7 @@
   for (index, note) in measure.notes.enumerate() {
     columns.push(note.min-width)
     cells.push(box(width: note.min-width)[
-      #align(center)[#box(width: note-head-width, align(center)[#note-text(note)])]
+      #align(center)[#note-head(note, note-head-width: note-head-width)]
     ])
 
     if index < measure.notes.len() - 1 {
