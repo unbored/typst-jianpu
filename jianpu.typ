@@ -9,7 +9,6 @@
   font: "Arial",
   size: 12pt,
   sort-chords: true,
-  justify: true,
   justify-last: false,
   first-indent: 24pt,
 ) = {
@@ -45,7 +44,6 @@
           geometry.dot-radius,
           geometry.dot-gap,
           geometry.row-gap,
-          justify: justify,
           justify-last: justify-last,
           first-indent: first-indent,
         )

@@ -4,6 +4,8 @@
 
 // Minimum-width wrapping remains measure-based: rows may break only between
 // measures, never between events inside a measure.
+#let measure-bar-slot-width(measure, bar-width) = if measure.final-bar { bar-width * 1.75 } else { bar-width }
+
 #let measure-min-width(measure, bar-width: 5pt, bar-gap: 6pt) = {
   let width = 0pt
 
@@ -12,7 +14,7 @@
   }
 
   if measure.bar {
-    width += bar-gap + bar-width
+    width += bar-gap + measure-bar-slot-width(measure, bar-width)
   }
 
   width
@@ -164,15 +166,35 @@
   }
 }
 
-#let measure-bar-line(width, height, top-offset, stroke) = {
+#let measure-bar-line(width, height, top-offset, stroke, final: false) = {
   // The bar line reaches the row's highest chord note-head, while its lower
   // end stays at the ordinary note-head height. Octave dots and beam lines do
   // not lengthen it. It is an overlay so it cannot alter layout.
   box(width: width, height: 0pt)[
     #place(top, dy: -top-offset)[
-      #box(width: width, align(center)[
-        #line(length: height, angle: 90deg, stroke: stroke)
-      ])
+      #if final {
+        let unit = width / 1.75
+        let thin-stroke = unit * 0.14
+        let thick-stroke = unit * 0.828
+        let clear-gap = unit * 0.504
+        let thick-x = width - thick-stroke / 2
+        let thin-x = thick-x - thick-stroke / 2 - clear-gap - thin-stroke / 2
+        // Both the clear gap and the heavy stroke are 1.8 times the
+        // initial terminal bar. Anchor the outer edge of the heavy stroke to
+        // the slot's right edge so a justified row ends on the visible bar.
+        box(width: width)[
+          #place(top + left, dx: thin-x)[
+            #line(length: height, angle: 90deg, stroke: thin-stroke)
+          ]
+          #place(top + left, dx: thick-x)[
+            #line(length: height, angle: 90deg, stroke: thick-stroke)
+          ]
+        ]
+      } else {
+        box(width: width, align(center)[
+          #line(length: height, angle: 90deg, stroke: stroke)
+        ])
+      }
     ]
   ]
 }

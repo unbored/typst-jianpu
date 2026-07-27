@@ -178,14 +178,16 @@
   }
 
   if measure-data.bar {
+    let actual-bar-width = measure-bar-slot-width(measure-data, bar-width)
     columns.push(trailing-bar-gap)
     cells.push([])
-    columns.push(bar-width)
+    columns.push(actual-bar-width)
     cells.push(measure-bar-line(
-      bar-width,
+      actual-bar-width,
       bar-height,
       bar-top-offset,
       bar-width * 0.22,
+      final: measure-data.final-bar,
     ))
   }
 
@@ -243,7 +245,7 @@
   }
 
   if measure.bar {
-    columns.push(trailing-bar-gap + bar-width)
+    columns.push(trailing-bar-gap + measure-bar-slot-width(measure, bar-width))
     cells.push([])
   }
 
@@ -328,7 +330,7 @@
   }
 
   if measure.bar {
-    columns.push(trailing-bar-gap + bar-width)
+    columns.push(trailing-bar-gap + measure-bar-slot-width(measure, bar-width))
     cells.push([])
   }
 
@@ -380,7 +382,7 @@
   }
 
   if measure.bar {
-    columns.push(trailing-bar-gap + bar-width)
+    columns.push(trailing-bar-gap + measure-bar-slot-width(measure, bar-width))
     cells.push([])
   }
 
@@ -631,7 +633,6 @@
   dot-radius,
   dot-gap,
   row-gap,
-  justify: true,
   justify-last: false,
   first-indent: 0pt,
 ) = {
@@ -683,7 +684,7 @@
         dot-radius: dot-radius,
         dot-gap: dot-gap,
         link-fragments: fragments,
-        justify: justify and (justify-last or index < rows.len() - 1),
+        justify: justify-last or index < rows.len() - 1,
       )
 
       if index == 0 and first-indent > 0pt {

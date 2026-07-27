@@ -121,10 +121,17 @@
   let measures = ()
   let current = ()
   for token in tokens {
-    if token == "|" { measures.push((notes: current, bar: true)); current = () }
+    if token == "|" { measures.push((notes: current, bar: true, final-bar: false)); current = () }
     else { current.push(parse-event(token, quarter-width, eighth-width, short-width, sort-chords: sort-chords)) }
   }
-  if current.len() > 0 { measures.push((notes: current, bar: false)) }
+  if current.len() > 0 { measures.push((notes: current, bar: false, final-bar: false)) }
+
+  if measures.len() > 0 {
+    // The end bar belongs to the track rather than to the source's final `|`:
+    // both terminated and unterminated raw blocks therefore render identically.
+    let last = measures.pop()
+    measures.push(last + (bar: true, final-bar: true))
+  }
   measures
 }
 
