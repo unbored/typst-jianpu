@@ -28,6 +28,18 @@
   ```
 )
 
+= 和弦测试
+
+#jianpu(
+  ```melody
+  c[1,, 3, 5 7' 1''] c[5, 1, 3']/ | c[1, 3 5'] c[7 2 4] |
+  ```,
+)
+
+#jianpu(sort-chords: false, ```melody
+c[5 1 3] c[1 3, 5] |
+```)
+
 = 简谱测试
 == 第一段
 #jianpu(```melody

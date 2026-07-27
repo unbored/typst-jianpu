@@ -7,6 +7,7 @@
 //   1///   thirty-second note, minimum width 1em
 //   1'     one octave above, rendered with an upper dot
 //   1,     one octave below, rendered with a lower dot
+//   c[1 3 5]/  chord: notes are stacked from low to high
 //   |      measure boundary, the only allowed line-break position
 
 #let duration-width(token, quarter-width: 36pt, eighth-width: 27pt, short-width: 18pt) = {
@@ -67,6 +68,8 @@
 
   (
     raw: token,
+    kind: "note",
+    members: (),
     beams: slash-count(token),
     pitch: pitch-index(token),
     octave: octave,
@@ -82,7 +85,47 @@
   )
 }
 
-#let parse-measures(tokens, quarter-width: 36pt, eighth-width: 27pt, short-width: 18pt) = {
+#let parse-chord(token, quarter-width: 36pt, eighth-width: 27pt, short-width: 18pt, sort-chords: true) = {
+  let parts = token.split("]")
+  let member-source = parts.at(0).slice(2)
+  let suffix = if parts.len() > 1 { parts.at(1) } else { "" }
+  let members = member-source
+    .split(" ")
+    .filter(member => member != "")
+    .map(member => parse-note(member, quarter-width: quarter-width, eighth-width: eighth-width, short-width: short-width))
+  let ordered-members = if sort-chords {
+    members.sorted(key: member => member.relative-pitch)
+  } else {
+    members
+  }
+  let root = ordered-members.at(0)
+  // Duration markers live after the closing bracket and belong to the chord
+  // as a whole. The lowest member supplies the visible note-head attributes.
+  let duration = parse-note("1" + suffix, quarter-width: quarter-width, eighth-width: eighth-width, short-width: short-width)
+
+  (
+    raw: root.raw,
+    kind: "chord",
+    members: ordered-members,
+    beams: duration.beams,
+    pitch: root.pitch,
+    octave: root.octave,
+    relative-pitch: root.relative-pitch,
+    octave-up: root.octave-up,
+    octave-down: root.octave-down,
+    min-width: duration.min-width,
+  )
+}
+
+#let parse-event(token, quarter-width: 36pt, eighth-width: 27pt, short-width: 18pt, sort-chords: true) = {
+  if token.starts-with("c[") and token.contains("]") {
+    parse-chord(token, quarter-width: quarter-width, eighth-width: eighth-width, short-width: short-width, sort-chords: sort-chords)
+  } else {
+    parse-note(token, quarter-width: quarter-width, eighth-width: eighth-width, short-width: short-width)
+  }
+}
+
+#let parse-measures(tokens, quarter-width: 36pt, eighth-width: 27pt, short-width: 18pt, sort-chords: true) = {
   let measures = ()
   let current = ()
 
@@ -91,11 +134,12 @@
       measures.push((notes: current, bar: true))
       current = ()
     } else {
-      current.push(parse-note(
+      current.push(parse-event(
         token,
         quarter-width: quarter-width,
         eighth-width: eighth-width,
         short-width: short-width,
+        sort-chords: sort-chords,
       ))
     }
   }
@@ -128,9 +172,129 @@
   ]
 }
 
+#let chord-note-step(note-head-width) = {
+  note-head-width * 1.45
+}
+
+#let chord-dot-radius(note-head-width) = {
+  note-head-width * 0.11
+}
+
+#let chord-dot-gap(note-head-width) = {
+  note-head-width * 0.17
+}
+
+#let chord-dot-offset(note-head-width) = {
+  // Match the ordinary note-to-octave-dot clearance, which is set by the
+  // vertical gap between the note row and the upper-dot row.
+  note-head-width * 0.23
+}
+
+#let chord-octave-dots(count, note-head-width) = {
+  let radius = chord-dot-radius(note-head-width)
+  let gap = chord-dot-gap(note-head-width)
+  let diameter = radius * 2
+  let height = if count <= 0 { 0pt } else { count * diameter + (count - 1) * gap }
+
+  box(width: diameter, height: height)[
+    #for index in range(0, count) {
+      place(top, dy: index * (diameter + gap))[
+        #circle(radius: radius, fill: black)
+      ]
+    }
+  ]
+}
+
+#let chord-octave-dots-height(count, note-head-width) = {
+  let radius = chord-dot-radius(note-head-width)
+  let gap = chord-dot-gap(note-head-width)
+  if count <= 0 { 0pt } else { count * radius * 2 + (count - 1) * gap }
+}
+
+#let chord-lower-clearance(member, note-head-width) = {
+  if member.octave-down > 0 {
+    chord-octave-dots-height(member.octave-down, note-head-width) + chord-dot-offset(note-head-width)
+  } else {
+    0pt
+  }
+}
+
+#let chord-upper-clearance(member, note-head-width) = {
+  if member.octave-up > 0 {
+    chord-octave-dots-height(member.octave-up, note-head-width) + chord-dot-offset(note-head-width)
+  } else {
+    0pt
+  }
+}
+
+#let chord-member-offset(note, index, note-head-width) = {
+  let offset = 0pt
+  // A member's lower dots occupy the space toward the member below it.
+  // Its upper dots occupy the space toward the member above it. Include both
+  // sides of every layer boundary while walking upward through the chord.
+  for member-index in range(1, index + 1) {
+    let below-member = note.members.at(member-index - 1)
+    let member = note.members.at(member-index)
+    offset += chord-note-step(note-head-width) + chord-upper-clearance(below-member, note-head-width) + chord-lower-clearance(member, note-head-width)
+  }
+  offset
+}
+
+#let chord-upper-height(note, note-head-width) = {
+  if note.kind == "chord" {
+    let height = 0pt
+    for (index, member) in note.members.enumerate() {
+      if index > 0 {
+        let dot-height = chord-octave-dots-height(member.octave-up, note-head-width)
+        height = calc.max(
+          height,
+          chord-member-offset(note, index, note-head-width) + dot-height + if dot-height > 0pt { chord-dot-offset(note-head-width) } else { 0pt },
+        )
+      }
+    }
+    height
+  } else {
+    0pt
+  }
+}
+
+#let chord-member-head(member, note-head-width) = {
+  box(width: note-head-width)[
+    #align(center)[#note-text(member)]
+    #if member.octave-up > 0 {
+      place(top, dy: -chord-octave-dots-height(member.octave-up, note-head-width) - chord-dot-offset(note-head-width))[
+        #box(width: note-head-width, align(center)[
+          #chord-octave-dots(member.octave-up, note-head-width)
+        ])
+      ]
+    }
+    #if member.octave-down > 0 {
+      place(bottom, dy: chord-lower-clearance(member, note-head-width))[
+        #box(width: note-head-width, align(center)[
+          #chord-octave-dots(member.octave-down, note-head-width)
+        ])
+      ]
+    }
+  ]
+}
+
+#let chord-head(note, note-head-width: 12pt) = {
+  let root = note.members.at(0)
+  box(width: note-head-width)[
+    #align(center)[#note-text(root)]
+    #for index in range(1, note.members.len()) {
+      place(top, dy: -chord-member-offset(note, index, note-head-width))[
+        #chord-member-head(note.members.at(index), note-head-width)
+      ]
+    }
+  ]
+}
+
 #let note-head(note, note-head-width: 12pt) = {
   box(width: note-head-width, align(center)[
-    #if is-extension-note(note) {
+    #if note.kind == "chord" {
+      chord-head(note, note-head-width: note-head-width)
+    } else if is-extension-note(note) {
       extension-line()
     } else {
       note-text(note)
@@ -184,6 +348,16 @@
     count = calc.max(count, max-octave-up(measure))
   }
   count
+}
+
+#let row-max-chord-upper-height(row, note-head-width) = {
+  let height = 0pt
+  for measure in row {
+    for note in measure.notes {
+      height = calc.max(height, chord-upper-height(note, note-head-width))
+    }
+  }
+  height
 }
 
 #let has-beam-level(measure, level) = {
@@ -713,7 +887,10 @@
   }
   let columns = ()
   let cells = ()
-  let upper-dot-height = octave-dots-height(row-max-octave-up(row), dot-radius: dot-radius, dot-gap: dot-gap)
+  let upper-dot-height = calc.max(
+    octave-dots-height(row-max-octave-up(row), dot-radius: dot-radius, dot-gap: dot-gap),
+    row-max-chord-upper-height(row, beam-note-width),
+  )
 
   for (index, measure) in row.enumerate() {
     let leading-gap = if index == 0 {
@@ -769,11 +946,34 @@
 }
 
 #let score-tokens(score) = {
-  group-text(score)
+  let raw-tokens = group-text(score)
     .replace(regex("\r?\n"), " ")
     .replace("|", " | ")
     .split(" ")
     .filter(token => token != "")
+  let tokens = ()
+  let compound = none
+
+  // Chords may contain whitespace, but must remain one event for measure
+  // parsing. Future compound events can use the same scanner convention.
+  for token in raw-tokens {
+    if compound != none {
+      compound += " " + token
+      if token.contains("]") {
+        tokens.push(compound)
+        compound = none
+      }
+    } else if token.starts-with("c[") and not token.contains("]") {
+      compound = token
+    } else {
+      tokens.push(token)
+    }
+  }
+
+  if compound != none {
+    tokens.push(compound)
+  }
+  tokens
 }
 
 #let parse-track(
@@ -781,6 +981,7 @@
   quarter-width,
   eighth-width,
   short-width,
+  sort-chords,
 ) = {
   // A raw block is treated as a track. Its language tag is the track kind:
   // ```melody is rendered today; ```lyrics and future kinds are parsed and
@@ -793,6 +994,7 @@
       quarter-width: quarter-width,
       eighth-width: eighth-width,
       short-width: short-width,
+      sort-chords: sort-chords,
     ),
   )
 }
@@ -802,6 +1004,7 @@
   quarter-width,
   eighth-width,
   short-width,
+  sort-chords,
 ) = {
   // This boundary is intentionally small but important: later multi-voice
   // layout should operate on score.tracks instead of raw blocks directly.
@@ -811,6 +1014,7 @@
       quarter-width,
       eighth-width,
       short-width,
+      sort-chords,
     )),
   )
 }
@@ -879,6 +1083,7 @@
   ..groups,
   font: "Arial",
   size: 12pt,
+  sort-chords: true,
   justify: true,
   justify-last: false,
   first-indent: 24pt,
@@ -906,6 +1111,7 @@
     actual-quarter-width,
     actual-eighth-width,
     actual-short-width,
+    sort-chords,
   )
   let melody-tracks = score.tracks.filter(track => track.kind == "melody")
 
