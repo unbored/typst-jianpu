@@ -2,6 +2,8 @@
 
 一个正在开发中的 Typst 简谱排版插件。
 
+内部实现按职责拆分：`src/parser.typ` 负责 raw 简谱解析与 score 模型，`src/geometry.typ` 负责由字号推导的私有尺寸；`jianpu.typ` 仍是唯一需要导入的公开入口。
+
 ## 使用方式
 
 ```typst

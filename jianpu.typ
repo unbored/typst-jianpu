@@ -1,170 +1,5 @@
-// Minimal Jianpu renderer.
-//
-// Current notation:
-//   1      quarter note, minimum width 2em
-//   1/     eighth note, minimum width 1.5em
-//   1//    sixteenth note, minimum width 1em
-//   1///   thirty-second note, minimum width 1em
-//   1'     one octave above, rendered with an upper dot
-//   1,     one octave below, rendered with a lower dot
-//   c[1 3 5]/  chord: notes are stacked from low to high
-//   |      measure boundary, the only allowed line-break position
-
-#let duration-width(token, quarter-width: 36pt, eighth-width: 27pt, short-width: 18pt) = {
-  // For the first prototype, "/" count determines duration. Other suffixes
-  // can later be parsed into octave, dots, ties, ornaments, etc.
-  if token.contains("///") {
-    short-width
-  } else if token.contains("//") {
-    short-width
-  } else if token.contains("/") {
-    eighth-width
-  } else {
-    quarter-width
-  }
-}
-
-#let slash-count(token) = {
-  token.split("/").len() - 1
-}
-
-#let octave-up-count(token) = {
-  token.split("'").len() - 1
-}
-
-#let octave-down-count(token) = {
-  token.split(",").len() - 1
-}
-
-#let first-octave-direction(token) = {
-  // A note cannot be both above and below the reference octave. When malformed
-  // input mixes markers, the first marker in source order wins.
-  for character in token {
-    if character == "'" {
-      return "up"
-    }
-    if character == "," {
-      return "down"
-    }
-  }
-  none
-}
-
-#let pitch-index(token) = {
-  let head = token.at(0)
-  if head == "X" {
-    8
-  } else if head == "0" {
-    0
-  } else if head == "1" {
-    1
-  } else if head == "2" {
-    2
-  } else if head == "3" {
-    3
-  } else if head == "4" {
-    4
-  } else if head == "5" {
-    5
-  } else if head == "6" {
-    6
-  } else if head == "7" {
-    7
-  } else {
-    0
-  }
-}
-
-#let parse-note(token, quarter-width: 36pt, eighth-width: 27pt, short-width: 18pt) = {
-  let octave-direction = first-octave-direction(token)
-  let octave-up = if octave-direction == "up" { octave-up-count(token) } else { 0 }
-  let octave-down = if octave-direction == "down" { octave-down-count(token) } else { 0 }
-  let octave = octave-up - octave-down
-
-  (
-    raw: token,
-    kind: "note",
-    members: (),
-    beams: slash-count(token),
-    pitch: pitch-index(token),
-    octave: octave,
-    relative-pitch: pitch-index(token) + octave * 7,
-    octave-up: octave-up,
-    octave-down: octave-down,
-    min-width: duration-width(
-      token,
-      quarter-width: quarter-width,
-      eighth-width: eighth-width,
-      short-width: short-width,
-    ),
-  )
-}
-
-#let parse-chord(token, quarter-width: 36pt, eighth-width: 27pt, short-width: 18pt, sort-chords: true) = {
-  let parts = token.split("]")
-  let member-source = parts.at(0).slice(2)
-  let suffix = if parts.len() > 1 { parts.at(1) } else { "" }
-  let members = member-source
-    .split(" ")
-    .filter(member => member != "")
-    .map(member => parse-note(member, quarter-width: quarter-width, eighth-width: eighth-width, short-width: short-width))
-  let ordered-members = if sort-chords {
-    members.sorted(key: member => member.relative-pitch)
-  } else {
-    members
-  }
-  let root = ordered-members.at(0)
-  // Duration markers live after the closing bracket and belong to the chord
-  // as a whole. The lowest member supplies the visible note-head attributes.
-  let duration = parse-note("1" + suffix, quarter-width: quarter-width, eighth-width: eighth-width, short-width: short-width)
-
-  (
-    raw: root.raw,
-    kind: "chord",
-    members: ordered-members,
-    beams: duration.beams,
-    pitch: root.pitch,
-    octave: root.octave,
-    relative-pitch: root.relative-pitch,
-    octave-up: root.octave-up,
-    octave-down: root.octave-down,
-    min-width: duration.min-width,
-  )
-}
-
-#let parse-event(token, quarter-width: 36pt, eighth-width: 27pt, short-width: 18pt, sort-chords: true) = {
-  if token.starts-with("c[") and token.contains("]") {
-    parse-chord(token, quarter-width: quarter-width, eighth-width: eighth-width, short-width: short-width, sort-chords: sort-chords)
-  } else {
-    parse-note(token, quarter-width: quarter-width, eighth-width: eighth-width, short-width: short-width)
-  }
-}
-
-#let parse-measures(tokens, quarter-width: 36pt, eighth-width: 27pt, short-width: 18pt, sort-chords: true) = {
-  let measures = ()
-  let current = ()
-
-  for token in tokens {
-    if token == "|" {
-      measures.push((notes: current, bar: true))
-      current = ()
-    } else {
-      current.push(parse-event(
-        token,
-        quarter-width: quarter-width,
-        eighth-width: eighth-width,
-        short-width: short-width,
-        sort-chords: sort-chords,
-      ))
-    }
-  }
-
-  if current.len() > 0 {
-    measures.push((notes: current, bar: false))
-  }
-
-  measures
-}
+#import "src/parser.typ": *
+#import "src/geometry.typ": metrics
 
 #let note-text(note) = {
   // The rendered head is currently the first character. Suffixes are parsed
@@ -985,102 +820,6 @@
   ]
 }
 
-#let group-text(group) = {
-  if type(group) == str {
-    group
-  } else if type(group) == content {
-    group.text
-  } else {
-    str(group)
-  }
-}
-
-#let group-kind(group) = {
-  if type(group) == content and "lang" in group.fields() and group.lang != none {
-    if group.lang == "jianpu" {
-      "melody"
-    } else {
-      group.lang
-    }
-  } else {
-    "melody"
-  }
-}
-
-#let score-tokens(score) = {
-  let raw-tokens = group-text(score)
-    .replace(regex("\r?\n"), " ")
-    .replace("|", " | ")
-    .split(" ")
-    .filter(token => token != "")
-  let tokens = ()
-  let compound = none
-
-  // Chords may contain whitespace, but must remain one event for measure
-  // parsing. Future compound events can use the same scanner convention.
-  for token in raw-tokens {
-    if compound != none {
-      compound += " " + token
-      if token.contains("]") {
-        tokens.push(compound)
-        compound = none
-      }
-    } else if token.starts-with("c[") and not token.contains("]") {
-      compound = token
-    } else {
-      tokens.push(token)
-    }
-  }
-
-  if compound != none {
-    tokens.push(compound)
-  }
-  tokens
-}
-
-#let parse-track(
-  group,
-  quarter-width,
-  eighth-width,
-  short-width,
-  sort-chords,
-) = {
-  // A raw block is treated as a track. Its language tag is the track kind:
-  // ```melody is rendered today; ```lyrics and future kinds are parsed and
-  // kept in the score model but not laid out yet.
-  (
-    kind: group-kind(group),
-    source: group-text(group),
-    measures: parse-measures(
-      score-tokens(group),
-      quarter-width: quarter-width,
-      eighth-width: eighth-width,
-      short-width: short-width,
-      sort-chords: sort-chords,
-    ),
-  )
-}
-
-#let parse-score(
-  groups,
-  quarter-width,
-  eighth-width,
-  short-width,
-  sort-chords,
-) = {
-  // This boundary is intentionally small but important: later multi-voice
-  // layout should operate on score.tracks instead of raw blocks directly.
-  (
-    tracks: groups.map(group => parse-track(
-      group,
-      quarter-width,
-      eighth-width,
-      short-width,
-      sort-chords,
-    )),
-  )
-}
-
 #let render-track(
   track,
   line-width,
@@ -1152,27 +891,14 @@
 ) = {
   set text(font: font, size: size, weight: "bold")
 
-  // Internal geometry is derived from the font size. Keep these out of the
-  // public API until the core notation model stabilizes.
-  let actual-quarter-width = size * 2
-  let actual-eighth-width = size * 1.5
-  let actual-short-width = size
-  let actual-min-measure-gap = size * 0.8
-  let actual-bar-width = size * 0.3
-  let actual-bar-gap = size * 0.35
-  let actual-beam-gap = size * 0.16
-  let actual-beam-note-width = size * 0.7
-  let actual-beam-thickness = size * 0.04
-  let actual-dot-radius = size * 0.075
-  let actual-dot-gap = size * 0.12
-  let actual-row-gap = size * 0.9
-  let actual-group-gap = size * 1.2
-  let actual-first-indent = first-indent
+  // Internal geometry stays private even though its calculation now lives in
+  // a dedicated module.
+  let geometry = metrics(size)
   let score = parse-score(
     groups.pos(),
-    actual-quarter-width,
-    actual-eighth-width,
-    actual-short-width,
+    geometry.quarter-width,
+    geometry.eighth-width,
+    geometry.short-width,
     sort-chords,
   )
   let melody-tracks = score.tracks.filter(track => track.kind == "melody")
@@ -1181,23 +907,23 @@
     // For now, multiple melody tracks are rendered one after another. This is
     // deliberate: the parser already has score/tracks, but system-level
     // alignment across tracks is not implemented yet.
-    stack(dir: ttb, spacing: actual-group-gap,
+    stack(dir: ttb, spacing: geometry.group-gap,
       ..melody-tracks.map(track => {
         render-track(
           track,
           available.width,
-          actual-min-measure-gap,
-          actual-bar-width,
-          actual-bar-gap,
-          actual-beam-gap,
-          actual-beam-note-width,
-          actual-beam-thickness,
-          actual-dot-radius,
-          actual-dot-gap,
-          actual-row-gap,
+          geometry.min-measure-gap,
+          geometry.bar-width,
+          geometry.bar-gap,
+          geometry.beam-gap,
+          geometry.beam-note-width,
+          geometry.beam-thickness,
+          geometry.dot-radius,
+          geometry.dot-gap,
+          geometry.row-gap,
           justify: justify,
           justify-last: justify-last,
-          first-indent: actual-first-indent,
+          first-indent: first-indent,
         )
       }),
     )

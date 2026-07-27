@@ -1,0 +1,116 @@
+// Source tokenization and score-model construction.
+
+#let duration-width(token, quarter-width, eighth-width, short-width) = {
+  if token.contains("///") or token.contains("//") { short-width }
+  else if token.contains("/") { eighth-width }
+  else { quarter-width }
+}
+
+#let slash-count(token) = { token.split("/").len() - 1 }
+#let octave-up-count(token) = { token.split("'").len() - 1 }
+#let octave-down-count(token) = { token.split(",").len() - 1 }
+
+#let first-octave-direction(token) = {
+  for character in token {
+    if character == "'" { return "up" }
+    if character == "," { return "down" }
+  }
+  none
+}
+
+#let pitch-index(token) = {
+  let head = token.at(0)
+  if head == "X" { 8 }
+  else if head == "0" { 0 }
+  else if head == "1" { 1 }
+  else if head == "2" { 2 }
+  else if head == "3" { 3 }
+  else if head == "4" { 4 }
+  else if head == "5" { 5 }
+  else if head == "6" { 6 }
+  else if head == "7" { 7 }
+  else { 0 }
+}
+
+#let parse-note(token, quarter-width, eighth-width, short-width) = {
+  let direction = first-octave-direction(token)
+  let octave-up = if direction == "up" { octave-up-count(token) } else { 0 }
+  let octave-down = if direction == "down" { octave-down-count(token) } else { 0 }
+  let octave = octave-up - octave-down
+  let pitch = pitch-index(token)
+  (
+    raw: token, kind: "note", members: (), beams: slash-count(token),
+    pitch: pitch, octave: octave, relative-pitch: pitch + octave * 7,
+    octave-up: octave-up, octave-down: octave-down,
+    min-width: duration-width(token, quarter-width, eighth-width, short-width),
+  )
+}
+
+#let parse-chord(token, quarter-width, eighth-width, short-width, sort-chords: true) = {
+  let parts = token.split("]")
+  let members = parts.at(0).slice(2).split(" ")
+    .filter(member => member != "")
+    .map(member => parse-note(member, quarter-width, eighth-width, short-width))
+  let ordered = if sort-chords { members.sorted(key: member => member.relative-pitch) } else { members }
+  let root = ordered.at(0)
+  let suffix = if parts.len() > 1 { parts.at(1) } else { "" }
+  let duration = parse-note("1" + suffix, quarter-width, eighth-width, short-width)
+  (
+    raw: root.raw, kind: "chord", members: ordered, beams: duration.beams,
+    pitch: root.pitch, octave: root.octave, relative-pitch: root.relative-pitch,
+    octave-up: root.octave-up, octave-down: root.octave-down, min-width: duration.min-width,
+  )
+}
+
+#let parse-event(token, quarter-width, eighth-width, short-width, sort-chords: true) = {
+  if token.starts-with("c[") and token.contains("]") {
+    parse-chord(token, quarter-width, eighth-width, short-width, sort-chords: sort-chords)
+  } else { parse-note(token, quarter-width, eighth-width, short-width) }
+}
+
+#let parse-measures(tokens, quarter-width, eighth-width, short-width, sort-chords: true) = {
+  let measures = ()
+  let current = ()
+  for token in tokens {
+    if token == "|" { measures.push((notes: current, bar: true)); current = () }
+    else { current.push(parse-event(token, quarter-width, eighth-width, short-width, sort-chords: sort-chords)) }
+  }
+  if current.len() > 0 { measures.push((notes: current, bar: false)) }
+  measures
+}
+
+#let group-text(group) = {
+  if type(group) == str { group }
+  else if type(group) == content { group.text }
+  else { str(group) }
+}
+
+#let group-kind(group) = {
+  if type(group) == content and "lang" in group.fields() and group.lang != none {
+    if group.lang == "jianpu" { "melody" } else { group.lang }
+  } else { "melody" }
+}
+
+#let score-tokens(score) = {
+  let raw-tokens = group-text(score).replace(regex("\\r?\\n"), " ").replace("|", " | ").split(" ").filter(token => token != "")
+  let tokens = ()
+  let compound = none
+  for token in raw-tokens {
+    if compound != none {
+      compound += " " + token
+      if token.contains("]") { tokens.push(compound); compound = none }
+    } else if token.starts-with("c[") and not token.contains("]") { compound = token }
+    else { tokens.push(token) }
+  }
+  if compound != none { tokens.push(compound) }
+  tokens
+}
+
+#let parse-track(group, quarter-width, eighth-width, short-width, sort-chords) = (
+  kind: group-kind(group), source: group-text(group),
+  measures: parse-measures(score-tokens(group), quarter-width, eighth-width, short-width, sort-chords: sort-chords),
+)
+
+#let parse-score(groups, quarter-width, eighth-width, short-width, sort-chords) = (
+  tracks: groups.map(group => parse-track(group, quarter-width, eighth-width, short-width, sort-chords)),
+)
