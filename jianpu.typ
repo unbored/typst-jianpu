@@ -140,9 +140,64 @@
   ]
 }
 
+#let octave-dots-height(count, dot-radius: 0.7pt, dot-gap: 0.6pt) = {
+  if count <= 0 { 0pt } else { count * dot-radius * 2 + (count - 1) * dot-gap }
+}
+
+#let octave-dots(count, dot-radius: 0.7pt, dot-gap: 0.6pt) = {
+  let dot-diameter = dot-radius * 2
+  box(width: dot-diameter, height: octave-dots-height(count, dot-radius: dot-radius, dot-gap: dot-gap))[
+    #for index in range(0, count) {
+      place(top, dy: index * (dot-diameter + dot-gap))[
+        #circle(radius: dot-radius, fill: black)
+      ]
+    }
+  ]
+}
+
+#let grace-head(note) = {
+  // Curves are deliberately deferred. This first pass only establishes the
+  // compact note group and its independent default duration.
+  let scale = 0.75
+  let beams = if note.members.len() > 0 { note.members.at(0).beams } else { 0 }
+  let dot-radius = 0.075em * scale
+  let dot-gap = 0.12em * scale
+  let member-width = scale * 0.72em
+  let max-up = note.members.fold(0, (count, member) => calc.max(count, member.octave-up))
+  let max-down = note.members.fold(0, (count, member) => calc.max(count, member.octave-down))
+  // Like ordinary beams, grace beams follow the note heads rather than their
+  // duration boxes. The reduced head size determines both end padding and
+  // total beam length.
+  let beam-width = note.members.len() * scale * 0.72em
+  stack(dir: ttb, spacing: 0.08em,
+    stack(dir: ltr, spacing: 0.12em,
+      ..note.members.map(member => box(width: member-width, height: octave-dots-height(max-up, dot-radius: dot-radius, dot-gap: dot-gap))[
+        #align(center + bottom)[#octave-dots(member.octave-up, dot-radius: dot-radius, dot-gap: dot-gap)]
+      ]),
+    ),
+    align(center)[
+      #stack(dir: ltr, spacing: 0.12em,
+        ..note.members.map(member => box(width: member-width, align(center)[#text(size: scale * 1em)[#note-text(member)]])),
+      )
+    ],
+    ..range(0, beams).map(_ => align(center)[
+      #box(width: beam-width)[
+        #line(length: 100%, stroke: 0.04em)
+      ]
+    ]),
+    stack(dir: ltr, spacing: 0.12em,
+      ..note.members.map(member => box(width: member-width, height: octave-dots-height(max-down, dot-radius: dot-radius, dot-gap: dot-gap))[
+        #align(center + top)[#octave-dots(member.octave-down, dot-radius: dot-radius, dot-gap: dot-gap)]
+      ]),
+    ),
+  )
+}
+
 #let note-head(note, note-head-width: 12pt) = {
   box(width: note-head-width, align(center)[
-    #if note.kind == "chord" {
+    #if note.kind == "grace" {
+      grace-head(note)
+    } else if note.kind == "chord" {
       chord-head(note, note-head-width: note-head-width)
     } else if is-extension-note(note) {
       extension-line()
@@ -156,33 +211,6 @@
   line(length: length, stroke: thickness)
 }
 
-#let octave-dots(count, dot-radius: 0.7pt, dot-gap: 0.6pt) = {
-  let dot-diameter = dot-radius * 2
-  let height = if count <= 0 {
-    0pt
-  } else {
-    count * dot-diameter + (count - 1) * dot-gap
-  }
-
-  // Lower octave dots are painted in a zero-height overlay. `stack` may
-  // stretch there according to its surrounding measure, so place every dot
-  // at an explicit offset to keep their vertical spacing invariant.
-  box(width: dot-diameter, height: height)[
-    #for index in range(0, count) {
-      place(top, dy: index * (dot-diameter + dot-gap))[
-        #circle(radius: dot-radius, fill: black)
-      ]
-    }
-  ]
-}
-
-#let octave-dots-height(count, dot-radius: 0.7pt, dot-gap: 0.6pt) = {
-  if count <= 0 {
-    0pt
-  } else {
-    count * dot-radius * 2 + (count - 1) * dot-gap
-  }
-}
 
 #let max-octave-up(measure) = {
   let count = 0
@@ -389,8 +417,84 @@
   ]
 }
 
+#let grace-target-index(measure, index, direction) = {
+  let step = if direction == "previous" { -1 } else { 1 }
+  let target = index + step
+  while target >= 0 and target < measure.notes.len() {
+    if measure.notes.at(target).kind != "grace" { return target }
+    target += step
+  }
+  none
+}
+
+#let note-center-distance(measure, note-gaps, from, to) = {
+  let direction = if to > from { 1 } else { -1 }
+  let distance = measure.notes.at(from).min-width / 2
+  let index = from
+  while index != to {
+    let gap-index = if direction > 0 { index } else { index - 1 }
+    distance += note-gap-at(note-gaps, gap-index)
+    index += direction
+    distance += if index == to { measure.notes.at(index).min-width / 2 } else { measure.notes.at(index).min-width }
+  }
+  distance
+}
+
+#let grace-link(distance, direction, rise, thickness: 0.045em) = {
+  let end-x = if direction == "previous" { -distance } else { distance }
+  let corner = (0pt, rise)
+  curve(
+    stroke: thickness,
+    curve.move((0pt, 0pt)),
+    // Both controls sit at the theoretical right-angle corner. This keeps the
+    // grace tangent vertical and the main-note tangent horizontal while making
+    // the bend visibly stronger.
+    curve.cubic(corner, corner, (end-x, rise)),
+  )
+}
+
+#let grace-lift(note-head-width) = {
+  note-head-width * 1.15
+}
+
+#let grace-link-min-rise(note-head-width) = {
+  note-head-width * 0.28
+}
+
+#let grace-octave-extra(note, note-head-width) = {
+  let scale = 0.75
+  let dot-radius = note-head-width * 0.075 * scale
+  let dot-gap = note-head-width * 0.12 * scale
+  let max-up = note.members.fold(0, (count, member) => calc.max(count, member.octave-up))
+  let max-down = note.members.fold(0, (count, member) => calc.max(count, member.octave-down))
+  let upper-height = octave-dots-height(max-up, dot-radius: dot-radius, dot-gap: dot-gap)
+  let lower-height = octave-dots-height(max-down, dot-radius: dot-radius, dot-gap: dot-gap)
+  upper-height + lower-height
+}
+
+#let grace-target-shift(note-head-width) = {
+  note-head-width * 0.14
+}
+
+#let row-grace-lift(row, note-head-width) = {
+  let lift = 0pt
+  for measure in row {
+    for note in measure.notes {
+      if note.kind == "grace" {
+        lift = calc.max(
+          lift,
+          grace-lift(note-head-width)
+            + grace-octave-extra(note, note-head-width)
+            + grace-link-min-rise(note-head-width),
+        )
+      }
+    }
+  }
+  lift
+}
+
 #let render-note-row(
-  measure,
+  measure-data,
   extra-note-gap: 0pt,
   note-gaps: none,
   leading-gap: 0pt,
@@ -404,7 +508,7 @@
   let columns = ()
   let cells = ()
   let actual-note-gaps = if note-gaps == none {
-    note-gaps-from-extra(measure, extra-note-gap)
+    note-gaps-from-extra(measure-data, extra-note-gap)
   } else {
     note-gaps
   }
@@ -414,19 +518,59 @@
     cells.push([])
   }
 
-  for (index, note) in measure.notes.enumerate() {
+  for (index, note) in measure-data.notes.enumerate() {
     columns.push(note.min-width)
-    cells.push(box(width: note.min-width)[
-      #align(center)[#note-head(note, note-head-width: note-head-width)]
-    ])
+    if note.kind == "grace" {
+      let target = grace-target-index(measure-data, index, note.direction)
+      let distance = if target == none { 0pt } else { note-center-distance(measure-data, actual-note-gaps, index, target) }
+      // Compensate for every octave-dot row. This first pins the complete
+      // grace box's bottom edge instead of letting added dots push it down.
+      let nominal-grace-lift = grace-lift(note-head-width) + grace-octave-extra(note, note-head-width)
+      let target-shift = if target == none { 0pt } else { grace-target-shift(note-head-width) }
+      let signed-shift = if note.direction == "previous" { -target-shift } else { target-shift }
+      cells.push(context {
+        let grace-body = note-head(note, note-head-width: note-head-width)
+        let grace-size = measure(grace-body)
+        let target-size = if target == none {
+          (width: 0pt, height: 0pt)
+        } else {
+          measure(note-head(measure-data.notes.at(target), note-head-width: note-head-width))
+        }
+        let main-center = target-size.height / 2
+        let nominal-grace-bottom = grace-size.height - nominal-grace-lift
+        // Keep a visible vertical head even when many lower dots would place
+        // the measured bottom almost level with the main note's center.
+        let grace-bottom = if target == none {
+          nominal-grace-bottom
+        } else {
+          calc.min(nominal-grace-bottom, main-center - grace-link-min-rise(note-head-width))
+        }
+        let actual-grace-lift = grace-size.height - grace-bottom
+        // Move the independent grace group slightly toward its target. The arc
+        // starts at the shifted box center, so its horizontal span shrinks too.
+        let endpoint-distance = calc.max(distance - target-size.width / 2 - target-shift, 0pt)
+        box(width: note.min-width)[
+          #align(center)[#move(dx: signed-shift, dy: -actual-grace-lift)[#grace-body]]
+          #if target != none {
+            place(top + left, dx: note.min-width / 2 + signed-shift, dy: grace-bottom)[
+              #grace-link(endpoint-distance, note.direction, main-center - grace-bottom)
+            ]
+          }
+        ]
+      })
+    } else {
+      cells.push(box(width: note.min-width)[
+        #align(center)[#note-head(note, note-head-width: note-head-width)]
+      ])
+    }
 
-    if index < measure.notes.len() - 1 {
+    if index < measure-data.notes.len() - 1 {
       columns.push(note-gap-at(actual-note-gaps, index))
       cells.push([])
     }
   }
 
-  if measure.bar {
+  if measure-data.bar {
     columns.push(trailing-bar-gap)
     cells.push([])
     columns.push(bar-width)
@@ -777,10 +921,14 @@
   }
   let columns = ()
   let cells = ()
-  let upper-dot-height = calc.max(
+  let notation-upper-height = calc.max(
     octave-dots-height(row-max-octave-up(row), dot-radius: dot-radius, dot-gap: dot-gap),
     row-max-chord-upper-height(row, beam-note-width),
   )
+  // `move` does not affect layout bounds, so reserve the same distance that
+  // grace groups are lifted above the ordinary note row.
+  let grace-upper-reserve = row-grace-lift(row, beam-note-width)
+  let upper-dot-height = calc.max(notation-upper-height, grace-upper-reserve)
   let bar-lower-extension = beam-note-width * 0.30
   let bar-upper-extension = bar-lower-extension * 1.5
   let bar-top-offset = row-max-chord-digit-height(row, beam-note-width) + bar-upper-extension

@@ -62,9 +62,29 @@
   )
 }
 
+#let parse-grace(token, quarter-width, eighth-width, short-width) = {
+  let direction = if token.starts-with("g<[") { "previous" } else { "next" }
+  let prefix-length = if direction == "previous" { 3 } else { 2 }
+  let parts = token.split("]")
+  let suffix = if parts.len() > 1 and parts.at(1) != "" { parts.at(1) } else { "//" }
+  let members = parts.at(0).slice(prefix-length).split(" ")
+    .filter(member => member != "")
+    .map(member => parse-note(member + suffix, quarter-width, eighth-width, short-width))
+  (
+    raw: token, kind: "grace", members: members, direction: direction,
+    beams: 0, pitch: 0, octave: 0, relative-pitch: 0,
+    octave-up: 0, octave-down: 0,
+    // Grace-note duration boxes and their side padding scale with the reduced
+    // glyphs instead of retaining the full-size note width.
+    min-width: members.fold(0pt, (width, member) => width + member.min-width * 0.45),
+  )
+}
+
 #let parse-event(token, quarter-width, eighth-width, short-width, sort-chords: true) = {
   if token.starts-with("c[") and token.contains("]") {
     parse-chord(token, quarter-width, eighth-width, short-width, sort-chords: sort-chords)
+  } else if (token.starts-with("g[") or token.starts-with("g<[")) and token.contains("]") {
+    parse-grace(token, quarter-width, eighth-width, short-width)
   } else { parse-note(token, quarter-width, eighth-width, short-width) }
 }
 
@@ -99,7 +119,7 @@
     if compound != none {
       compound += " " + token
       if token.contains("]") { tokens.push(compound); compound = none }
-    } else if token.starts-with("c[") and not token.contains("]") { compound = token }
+    } else if (token.starts-with("c[") or token.starts-with("g[") or token.starts-with("g<[") ) and not token.contains("]") { compound = token }
     else { tokens.push(token) }
   }
   if compound != none { tokens.push(compound) }
