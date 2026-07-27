@@ -9,6 +9,25 @@
 #let slash-count(token) = { token.split("/").len() - 1 }
 #let octave-up-count(token) = { token.split("'").len() - 1 }
 #let octave-down-count(token) = { token.split(",").len() - 1 }
+#let slur-start-count(token) = { token.split("(").len() - 1 }
+#let slur-end-count(token) = { token.split(")").len() - 1 }
+#let tie-start-count(token) = { token.split("~").len() - 1 }
+#let strip-link-marks(token) = { token.replace("(", "").replace(")", "").replace("~", "") }
+
+#let attach-standalone-link-marks(tokens) = {
+  let attached = ()
+  for token in tokens {
+    let standalone-link = token == "(" or token == ")" or token == "~"
+    let has-preceding-event = attached.len() > 0 and attached.at(attached.len() - 1) != "|"
+    if standalone-link and has-preceding-event {
+      let last = attached.at(attached.len() - 1)
+      attached = attached.slice(0, attached.len() - 1) + (last + token,)
+    } else {
+      attached.push(token)
+    }
+  }
+  attached
+}
 
 #let first-octave-direction(token) = {
   for character in token {
@@ -33,16 +52,18 @@
 }
 
 #let parse-note(token, quarter-width, eighth-width, short-width) = {
-  let direction = first-octave-direction(token)
-  let octave-up = if direction == "up" { octave-up-count(token) } else { 0 }
-  let octave-down = if direction == "down" { octave-down-count(token) } else { 0 }
+  let core = strip-link-marks(token)
+  let direction = first-octave-direction(core)
+  let octave-up = if direction == "up" { octave-up-count(core) } else { 0 }
+  let octave-down = if direction == "down" { octave-down-count(core) } else { 0 }
   let octave = octave-up - octave-down
-  let pitch = pitch-index(token)
+  let pitch = pitch-index(core)
   (
-    raw: token, kind: "note", members: (), beams: slash-count(token),
+    raw: core, kind: "note", members: (), beams: slash-count(core),
     pitch: pitch, octave: octave, relative-pitch: pitch + octave * 7,
     octave-up: octave-up, octave-down: octave-down,
-    min-width: duration-width(token, quarter-width, eighth-width, short-width),
+    min-width: duration-width(core, quarter-width, eighth-width, short-width),
+    slur-start: slur-start-count(token), slur-end: slur-end-count(token), tie-start: tie-start-count(token),
   )
 }
 
@@ -59,6 +80,7 @@
     raw: root.raw, kind: "chord", members: ordered, beams: duration.beams,
     pitch: root.pitch, octave: root.octave, relative-pitch: root.relative-pitch,
     octave-up: root.octave-up, octave-down: root.octave-down, min-width: duration.min-width,
+    slur-start: duration.slur-start, slur-end: duration.slur-end, tie-start: duration.tie-start,
   )
 }
 
@@ -66,31 +88,33 @@
   let direction = if token.starts-with("g<[") { "previous" } else { "next" }
   let prefix-length = if direction == "previous" { 3 } else { 2 }
   let parts = token.split("]")
-  let suffix = if parts.len() > 1 and parts.at(1) != "" { parts.at(1) } else { "//" }
-  let members = parts.at(0).slice(prefix-length).split(" ")
-    .filter(member => member != "")
-    .map(member => parse-note(member + suffix, quarter-width, eighth-width, short-width))
+  let outer-suffix = if parts.len() > 1 { parts.at(1) } else { "" }
+  let stripped-suffix = strip-link-marks(outer-suffix)
+  let duration-suffix = if stripped-suffix == "" { "//" } else { stripped-suffix }
+  let member-tokens = parts.at(0).slice(prefix-length).split(" ").filter(member => member != "")
+  let members = attach-standalone-link-marks(member-tokens)
+    .map(member => parse-note(member + duration-suffix, quarter-width, eighth-width, short-width))
   (
     raw: token, kind: "grace", members: members, direction: direction,
     beams: 0, pitch: 0, octave: 0, relative-pitch: 0,
     octave-up: 0, octave-down: 0,
-    // Grace-note duration boxes and their side padding scale with the reduced
-    // glyphs instead of retaining the full-size note width.
-    min-width: members.fold(0pt, (width, member) => width + member.min-width * 0.45),
+    slur-start: slur-start-count(outer-suffix), slur-end: slur-end-count(outer-suffix), tie-start: tie-start-count(outer-suffix),
+    // The rendered group uses 0.54em member boxes and 0.12em internal gaps.
+    // Duration boxes may be wider, but the event must never be narrower than
+    // its actual glyph group or long grace sequences will overflow both sides.
+    min-width: calc.max(
+      members.fold(0pt, (width, member) => width + member.min-width * 0.45),
+      members.len() * short-width * 0.54 + calc.max(members.len() - 1, 0) * short-width * 0.12,
+    ),
   )
 }
 
 #let parse-event(token, quarter-width, eighth-width, short-width, sort-chords: true) = {
-  let slur-start = token.split("(").len() - 1
-  let slur-end = token.split(")").len() - 1
-  let tie-start = token.split("~").len() - 1
-  let core = token.replace("(", "").replace(")", "").replace("~", "")
-  let event = if core.starts-with("c[") and core.contains("]") {
-    parse-chord(core, quarter-width, eighth-width, short-width, sort-chords: sort-chords)
-  } else if (core.starts-with("g[") or core.starts-with("g<[")) and core.contains("]") {
-    parse-grace(core, quarter-width, eighth-width, short-width)
-  } else { parse-note(core, quarter-width, eighth-width, short-width) }
-  event + (slur-start: slur-start, slur-end: slur-end, tie-start: tie-start)
+  if token.starts-with("c[") and token.contains("]") {
+    parse-chord(token, quarter-width, eighth-width, short-width, sort-chords: sort-chords)
+  } else if (token.starts-with("g[") or token.starts-with("g<[")) and token.contains("]") {
+    parse-grace(token, quarter-width, eighth-width, short-width)
+  } else { parse-note(token, quarter-width, eighth-width, short-width) }
 }
 
 #let parse-measures(tokens, quarter-width, eighth-width, short-width, sort-chords: true) = {
@@ -129,20 +153,9 @@
   }
   if compound != none { tokens.push(compound) }
 
-  let attached = ()
-  for token in tokens {
-    // Standalone LilyPond-style marks belong to the preceding event, so
-    // `1 ( 2 )` and `1( 2)` produce the same parser input.
-    let standalone-link = token == "(" or token == ")" or token == "~"
-    let has-preceding-event = attached.len() > 0 and attached.at(attached.len() - 1) != "|"
-    if standalone-link and has-preceding-event {
-      let last = attached.at(attached.len() - 1)
-      attached = attached.slice(0, attached.len() - 1) + (last + token,)
-    } else {
-      attached.push(token)
-    }
-  }
-  attached
+  // Standalone LilyPond-style marks belong to the preceding event, so
+  // `1 ( 2 )` and `1( 2)` produce the same parser input.
+  attach-standalone-link-marks(tokens)
 }
 
 #let parse-track(group, quarter-width, eighth-width, short-width, sort-chords) = (

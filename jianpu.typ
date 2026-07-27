@@ -155,28 +155,44 @@
   ]
 }
 
-#let grace-head(note) = {
+#let grace-member-width(note-head-width) = {
+  note-head-width / 0.7 * 0.75 * 0.72
+}
+
+#let grace-member-gap(note-head-width) = {
+  note-head-width / 0.7 * 0.12
+}
+
+#let grace-group-width(note, note-head-width) = {
+  note.members.len() * grace-member-width(note-head-width) + calc.max(note.members.len() - 1, 0) * grace-member-gap(note-head-width)
+}
+
+#let grace-head(note, note-head-width) = {
   // Curves are deliberately deferred. This first pass only establishes the
   // compact note group and its independent default duration.
   let scale = 0.75
   let beams = if note.members.len() > 0 { note.members.at(0).beams } else { 0 }
   let dot-radius = 0.075em * scale
   let dot-gap = 0.12em * scale
-  let member-width = scale * 0.72em
+  let member-width = grace-member-width(note-head-width)
+  let member-gap = grace-member-gap(note-head-width)
   let max-up = note.members.fold(0, (count, member) => calc.max(count, member.octave-up))
   let max-down = note.members.fold(0, (count, member) => calc.max(count, member.octave-down))
   // Like ordinary beams, grace beams follow the note heads rather than their
   // duration boxes. The reduced head size determines both end padding and
   // total beam length.
-  let beam-width = note.members.len() * scale * 0.72em
+  let group-width = grace-group-width(note, note-head-width)
+  // Keep the familiar two-note end inset, but apply it only once instead of
+  // accidentally subtracting every internal member gap from a long beam.
+  let beam-width = if note.members.len() <= 1 { member-width } else { group-width - member-gap }
   stack(dir: ttb, spacing: 0.08em,
-    stack(dir: ltr, spacing: 0.12em,
+    stack(dir: ltr, spacing: member-gap,
       ..note.members.map(member => box(width: member-width, height: octave-dots-height(max-up, dot-radius: dot-radius, dot-gap: dot-gap))[
         #align(center + bottom)[#octave-dots(member.octave-up, dot-radius: dot-radius, dot-gap: dot-gap)]
       ]),
     ),
     align(center)[
-      #stack(dir: ltr, spacing: 0.12em,
+      #stack(dir: ltr, spacing: member-gap,
         ..note.members.map(member => box(width: member-width, align(center)[#text(size: scale * 1em)[#note-text(member)]])),
       )
     ],
@@ -185,7 +201,7 @@
         #line(length: 100%, stroke: 0.04em)
       ]
     ]),
-    stack(dir: ltr, spacing: 0.12em,
+    stack(dir: ltr, spacing: member-gap,
       ..note.members.map(member => box(width: member-width, height: octave-dots-height(max-down, dot-radius: dot-radius, dot-gap: dot-gap))[
         #align(center + top)[#octave-dots(member.octave-down, dot-radius: dot-radius, dot-gap: dot-gap)]
       ]),
@@ -196,7 +212,7 @@
 #let note-head(note, note-head-width: 12pt) = {
   box(width: note-head-width, align(center)[
     #if note.kind == "grace" {
-      grace-head(note)
+      grace-head(note, note-head-width)
     } else if note.kind == "chord" {
       chord-head(note, note-head-width: note-head-width)
     } else if is-extension-note(note) {
@@ -375,6 +391,31 @@
   count
 }
 
+#let event-link-items(note) = {
+  if note.kind != "grace" {
+    ((note: note, grace: false),)
+  } else {
+    note.members.enumerate().map(((index, member)) => (
+      note: member + (
+        slur-start: member.slur-start + if index == 0 { note.slur-start } else { 0 },
+        slur-end: member.slur-end + if index == note.members.len() - 1 { note.slur-end } else { 0 },
+        tie-start: member.tie-start + if index == note.members.len() - 1 { note.tie-start } else { 0 },
+      ),
+      grace: true,
+      grace-parent: note,
+      grace-index: index,
+    ))
+  }
+}
+
+#let row-link-anchor-count(row) = {
+  let count = 0
+  for measure in row {
+    for note in measure.notes { count += event-link-items(note).len() }
+  }
+  count
+}
+
 #let note-gaps-from-extra(measure, extra-note-gap) = {
   let gaps = ()
   for _ in range(0, calc.max(measure.notes.len() - 1, 0)) {
@@ -427,6 +468,10 @@
   none
 }
 
+#let grace-target-shift(note-head-width) = {
+  note-head-width * 0.14
+}
+
 #let note-center-distance(measure, note-gaps, from, to) = {
   let direction = if to > from { 1 } else { -1 }
   let distance = measure.notes.at(from).min-width / 2
@@ -440,7 +485,7 @@
   distance
 }
 
-#let row-note-positions(row, extra-gap, min-measure-gap, bar-width, bar-gap) = {
+#let row-link-positions(row, extra-gap, min-measure-gap, bar-width, bar-gap, note-head-width) = {
   let positions = ()
   let row-offset = 0pt
 
@@ -451,7 +496,21 @@
     let note-offset = row-offset + side-gaps.leading
 
     for (note-index, note) in measure.notes.enumerate() {
-      positions.push((note: note, x: note-offset + note.min-width / 2))
+      let event-center = note-offset + note.min-width / 2
+      if note.kind == "grace" {
+        let target = grace-target-index(measure, note-index, note.direction)
+        let target-shift = if target == none { 0pt } else { grace-target-shift(note-head-width) }
+        let signed-shift = if note.direction == "previous" { -target-shift } else { target-shift }
+        let member-width = grace-member-width(note-head-width)
+        let member-gap = grace-member-gap(note-head-width)
+        let group-width = grace-group-width(note, note-head-width)
+        for item in event-link-items(note) {
+          let member-x = event-center + signed-shift - group-width / 2 + member-width / 2 + item.grace-index * (member-width + member-gap)
+          positions.push(item + (x: member-x))
+        }
+      } else {
+        positions.push((note: note, grace: false, x: event-center))
+      }
       note-offset += note.min-width
       if note-index < measure.notes.len() - 1 {
         note-offset += note-gap-at(note-gaps, note-index)
@@ -506,11 +565,38 @@
   fragments
 }
 
+#let grace-lift(note-head-width) = {
+  note-head-width * 1.15
+}
+
+#let grace-link-min-rise(note-head-width) = {
+  note-head-width * 0.28
+}
+
+#let grace-octave-extra(note, note-head-width) = {
+  let scale = 0.75
+  let dot-radius = note-head-width * 0.075 * scale
+  let dot-gap = note-head-width * 0.12 * scale
+  let max-up = note.members.fold(0, (count, member) => calc.max(count, member.octave-up))
+  let max-down = note.members.fold(0, (count, member) => calc.max(count, member.octave-down))
+  let upper-height = octave-dots-height(max-up, dot-radius: dot-radius, dot-gap: dot-gap)
+  let lower-height = octave-dots-height(max-down, dot-radius: dot-radius, dot-gap: dot-gap)
+  upper-height + lower-height
+}
+
 #let notation-link-upper-height(note, note-head-width, dot-radius, dot-gap) = {
   calc.max(
     octave-dots-height(note.octave-up, dot-radius: dot-radius, dot-gap: dot-gap),
     chord-upper-height(note, note-head-width),
   )
+}
+
+#let notation-link-item-upper-height(item, note-head-width, dot-radius, dot-gap) = {
+  if item.grace {
+    grace-lift(note-head-width) + grace-octave-extra(item.grace-parent, note-head-width)
+  } else {
+    notation-link-upper-height(item.note, note-head-width, dot-radius, dot-gap)
+  }
 }
 
 #let notation-arc(width, start-y, end-y, height, thickness: 0.08em) = {
@@ -585,6 +671,13 @@
   else { "through" }
 }
 
+#let notation-link-base-height(link, positions, note-head-width) = {
+  let touches-grace = (link.start != none and positions.at(link.start).grace) or (link.end != none and positions.at(link.end).grace)
+  if link.kind == "tie" { note-head-width * 0.42 }
+  else if touches-grace { note-head-width * 0.30 }
+  else { note-head-width * 0.68 }
+}
+
 #let notation-required-height(mode, t, start-y, end-y, obstacle-y) = {
   let one-minus = 1 - t
   let base-y = 0pt
@@ -623,8 +716,8 @@
   let start-x = if start-item == none { boundary-inset } else { start-item.x + inset }
   let end-x = if end-item == none { line-width - boundary-inset } else { end-item.x - inset }
   let width = calc.max(end-x - start-x, note-head-width * 0.2)
-  let start-upper = if start-item == none { 0pt } else { notation-link-upper-height(start-item.note, note-head-width, dot-radius, dot-gap) }
-  let end-upper = if end-item == none { 0pt } else { notation-link-upper-height(end-item.note, note-head-width, dot-radius, dot-gap) }
+  let start-upper = if start-item == none { 0pt } else { notation-link-item-upper-height(start-item, note-head-width, dot-radius, dot-gap) }
+  let end-upper = if end-item == none { 0pt } else { notation-link-item-upper-height(end-item, note-head-width, dot-radius, dot-gap) }
   let start-y = -start-upper - clearance
   let end-y = -end-upper - clearance
   let first = if link.start == none { 0 } else { link.start + 1 }
@@ -635,7 +728,7 @@
     for index in range(first, last + 1) {
       let item = positions.at(index)
       let t = calc.clamp((item.x - start-x) / width, 0.0, 1.0)
-      let upper = notation-link-upper-height(item.note, note-head-width, dot-radius, dot-gap)
+      let upper = notation-link-item-upper-height(item, note-head-width, dot-radius, dot-gap)
       let obstacle-top = if upper > 0pt { -upper } else { beam-gap }
       let required = notation-required-height(mode, t, start-y, end-y, obstacle-top - clearance)
       height = calc.max(height, required)
@@ -655,29 +748,6 @@
     // the bend visibly stronger.
     curve.cubic(corner, corner, (end-x, rise)),
   )
-}
-
-#let grace-lift(note-head-width) = {
-  note-head-width * 1.15
-}
-
-#let grace-link-min-rise(note-head-width) = {
-  note-head-width * 0.28
-}
-
-#let grace-octave-extra(note, note-head-width) = {
-  let scale = 0.75
-  let dot-radius = note-head-width * 0.075 * scale
-  let dot-gap = note-head-width * 0.12 * scale
-  let max-up = note.members.fold(0, (count, member) => calc.max(count, member.octave-up))
-  let max-down = note.members.fold(0, (count, member) => calc.max(count, member.octave-down))
-  let upper-height = octave-dots-height(max-up, dot-radius: dot-radius, dot-gap: dot-gap)
-  let lower-height = octave-dots-height(max-down, dot-radius: dot-radius, dot-gap: dot-gap)
-  upper-height + lower-height
-}
-
-#let grace-target-shift(note-head-width) = {
-  note-head-width * 0.14
 }
 
 #let row-grace-lift(row, note-head-width) = {
@@ -1124,7 +1194,7 @@
   } else {
     0pt
   }
-  let note-positions = row-note-positions(row, extra-gap, min-measure-gap, bar-width, bar-gap)
+  let note-positions = row-link-positions(row, extra-gap, min-measure-gap, bar-width, bar-gap, beam-note-width)
   let notation-links = if link-fragments == none { notation-links-from-items(note-positions) } else { link-fragments }
   let columns = ()
   let cells = ()
@@ -1137,15 +1207,22 @@
   let grace-upper-reserve = row-grace-lift(row, beam-note-width)
   let endpoint-clearance = beam-note-width * 0.16
   let max-link-arc-height = 0pt
+  let max-link-obstacle-height = 0pt
+  for item in note-positions {
+    max-link-obstacle-height = calc.max(
+      max-link-obstacle-height,
+      notation-link-item-upper-height(item, beam-note-width, dot-radius, dot-gap),
+    )
+  }
   for link in notation-links {
-    let base-height = if link.kind == "tie" { beam-note-width * 0.42 } else { beam-note-width * 0.68 }
+    let base-height = notation-link-base-height(link, note-positions, beam-note-width)
     max-link-arc-height = calc.max(
       max-link-arc-height,
       notation-link-arc-height(link, note-positions, line-width, base-height, beam-note-width, dot-radius, dot-gap, beam-gap, endpoint-clearance),
     )
   }
-  let link-upper-reserve = if notation-links.len() > 0 { max-link-arc-height + endpoint-clearance + beam-note-width * 0.14 } else { 0pt }
-  let upper-dot-height = calc.max(notation-upper-height + link-upper-reserve, grace-upper-reserve)
+  let link-upper-reserve = if notation-links.len() > 0 { max-link-obstacle-height + max-link-arc-height + endpoint-clearance + beam-note-width * 0.14 } else { 0pt }
+  let upper-dot-height = calc.max(notation-upper-height, link-upper-reserve, grace-upper-reserve)
   let bar-lower-extension = beam-note-width * 0.30
   let bar-upper-extension = bar-lower-extension * 1.5
   let bar-top-offset = row-max-chord-digit-height(row, beam-note-width) + bar-upper-extension
@@ -1192,13 +1269,13 @@
       let start-x = if start == none { boundary-inset } else { start.x + inset }
       let end-x = if end == none { line-width - boundary-inset } else { end.x - inset }
       let width = calc.max(end-x - start-x, beam-note-width * 0.2)
-      let base-arc-height = if link.kind == "tie" { beam-note-width * 0.42 } else { beam-note-width * 0.68 }
+      let base-arc-height = notation-link-base-height(link, note-positions, beam-note-width)
       let arc-height = notation-link-arc-height(link, note-positions, line-width, base-arc-height, beam-note-width, dot-radius, dot-gap, beam-gap, endpoint-clearance)
       // Use the same clearance above a digit or its upper-dot stack. This
       // keeps unmarked endpoints from appearing noticeably tighter.
       let digit-endpoint = upper-dot-height - endpoint-clearance
-      let start-upper-height = if start == none { 0pt } else { notation-link-upper-height(start.note, beam-note-width, dot-radius, dot-gap) }
-      let end-upper-height = if end == none { 0pt } else { notation-link-upper-height(end.note, beam-note-width, dot-radius, dot-gap) }
+      let start-upper-height = if start == none { 0pt } else { notation-link-item-upper-height(start, beam-note-width, dot-radius, dot-gap) }
+      let end-upper-height = if end == none { 0pt } else { notation-link-item-upper-height(end, beam-note-width, dot-radius, dot-gap) }
       let start-y = if start-upper-height > 0pt { upper-dot-height - start-upper-height - endpoint-clearance } else { digit-endpoint }
       let end-y = if end-upper-height > 0pt { upper-dot-height - end-upper-height - endpoint-clearance } else { digit-endpoint }
       place(top + left, dx: start-x)[
@@ -1248,14 +1325,16 @@
 
   let track-items = ()
   for measure in track.measures {
-    for note in measure.notes { track-items.push((note: note)) }
+    for note in measure.notes {
+      for item in event-link-items(note) { track-items.push(item) }
+    }
   }
   let track-links = notation-links-from-items(track-items)
   let row-starts = ()
   let note-offset = 0
   for row in rows {
     row-starts.push(note-offset)
-    note-offset += row-note-count(row)
+    note-offset += row-link-anchor-count(row)
   }
 
   stack(dir: ttb, spacing: row-gap,
@@ -1265,7 +1344,7 @@
       } else {
         line-width
       }
-      let fragments = row-link-fragments(track-links, row-starts.at(index), row-note-count(row))
+      let fragments = row-link-fragments(track-links, row-starts.at(index), row-link-anchor-count(row))
       let row-content = render-row(
         row,
         row-line-width,
