@@ -1,0 +1,236 @@
+// Local notation glyphs and their intrinsic geometry.
+
+#let note-text(note) = {
+  // The rendered head is currently the first character. Suffixes are parsed
+  // as attributes and intentionally not shown yet.
+  note.raw.at(0)
+}
+
+#let is-extension-note(note) = {
+  note.raw.at(0) == "-"
+}
+
+#let extension-line(length: 0.72em, thickness: 0.08em) = {
+  // Do not use the font's hyphen/minus glyph for extension notes: it is too
+  // short and sits on the text baseline. Keep the drawn rule out of layout:
+  // otherwise a measure containing `-` gets a different vertical baseline.
+  box(width: length, height: 0pt)[
+    #place(horizon, dy: 0.42em)[
+      #line(length: 100%, stroke: thickness)
+    ]
+  ]
+}
+
+// Chord geometry is intrinsic to the stacked head. Layout code only needs the
+// resulting upper extent and must not reconstruct member offsets itself.
+#let chord-note-step(note-head-width) = {
+  note-head-width * 1.45
+}
+
+#let chord-dot-radius(note-head-width) = {
+  note-head-width * 0.11
+}
+
+#let chord-dot-gap(note-head-width) = {
+  note-head-width * 0.17
+}
+
+#let chord-dot-offset(note-head-width) = {
+  // Match the ordinary note-to-octave-dot clearance, which is set by the
+  // vertical gap between the note row and the upper-dot row.
+  note-head-width * 0.23
+}
+
+#let chord-octave-dots(count, note-head-width) = {
+  let radius = chord-dot-radius(note-head-width)
+  let gap = chord-dot-gap(note-head-width)
+  let diameter = radius * 2
+  let height = if count <= 0 { 0pt } else { count * diameter + (count - 1) * gap }
+
+  box(width: diameter, height: height)[
+    #for index in range(0, count) {
+      place(top, dy: index * (diameter + gap))[
+        #circle(radius: radius, fill: black)
+      ]
+    }
+  ]
+}
+
+#let chord-octave-dots-height(count, note-head-width) = {
+  let radius = chord-dot-radius(note-head-width)
+  let gap = chord-dot-gap(note-head-width)
+  if count <= 0 { 0pt } else { count * radius * 2 + (count - 1) * gap }
+}
+
+#let chord-lower-clearance(member, note-head-width) = {
+  if member.octave-down > 0 {
+    chord-octave-dots-height(member.octave-down, note-head-width) + chord-dot-offset(note-head-width)
+  } else {
+    0pt
+  }
+}
+
+#let chord-upper-clearance(member, note-head-width) = {
+  if member.octave-up > 0 {
+    chord-octave-dots-height(member.octave-up, note-head-width) + chord-dot-offset(note-head-width)
+  } else {
+    0pt
+  }
+}
+
+#let chord-member-offset(note, index, note-head-width) = {
+  let offset = 0pt
+  // A member's lower dots occupy the space toward the member below it.
+  // Its upper dots occupy the space toward the member above it. Include both
+  // sides of every layer boundary while walking upward through the chord.
+  for member-index in range(1, index + 1) {
+    let below-member = note.members.at(member-index - 1)
+    let member = note.members.at(member-index)
+    offset += chord-note-step(note-head-width) + chord-upper-clearance(below-member, note-head-width) + chord-lower-clearance(member, note-head-width)
+  }
+  offset
+}
+
+#let chord-upper-height(note, note-head-width) = {
+  if note.kind == "chord" {
+    let height = 0pt
+    for (index, member) in note.members.enumerate() {
+      if index > 0 {
+        let dot-height = chord-octave-dots-height(member.octave-up, note-head-width)
+        height = calc.max(
+          height,
+          chord-member-offset(note, index, note-head-width) + dot-height + if dot-height > 0pt { chord-dot-offset(note-head-width) } else { 0pt },
+        )
+      }
+    }
+    height
+  } else {
+    0pt
+  }
+}
+
+#let chord-member-head(member, note-head-width) = {
+  box(width: note-head-width)[
+    #align(center)[#note-text(member)]
+    #if member.octave-up > 0 {
+      place(top, dy: -chord-octave-dots-height(member.octave-up, note-head-width) - chord-dot-offset(note-head-width))[
+        #box(width: note-head-width, align(center)[
+          #chord-octave-dots(member.octave-up, note-head-width)
+        ])
+      ]
+    }
+    #if member.octave-down > 0 {
+      place(bottom, dy: chord-lower-clearance(member, note-head-width))[
+        #box(width: note-head-width, align(center)[
+          #chord-octave-dots(member.octave-down, note-head-width)
+        ])
+      ]
+    }
+  ]
+}
+
+#let chord-head(note, note-head-width: 12pt) = {
+  let root = note.members.at(0)
+  box(width: note-head-width)[
+    #align(center)[#note-text(root)]
+    #for index in range(1, note.members.len()) {
+      place(top, dy: -chord-member-offset(note, index, note-head-width))[
+        #chord-member-head(note.members.at(index), note-head-width)
+      ]
+    }
+  ]
+}
+
+// Ordinary notes, chords, and grace groups share these dot primitives so dot
+// size and vertical accumulation remain consistent across renderers.
+#let octave-dots-height(count, dot-radius: 0.7pt, dot-gap: 0.6pt) = {
+  if count <= 0 { 0pt } else { count * dot-radius * 2 + (count - 1) * dot-gap }
+}
+
+#let octave-dots(count, dot-radius: 0.7pt, dot-gap: 0.6pt) = {
+  let dot-diameter = dot-radius * 2
+  box(width: dot-diameter, height: octave-dots-height(count, dot-radius: dot-radius, dot-gap: dot-gap))[
+    #for index in range(0, count) {
+      place(top, dy: index * (dot-diameter + dot-gap))[
+        #circle(radius: dot-radius, fill: black)
+      ]
+    }
+  ]
+}
+
+// These functions are the canonical horizontal model for grace groups.
+// Occupancy, link anchors, and beam width must derive from them or long groups
+// will accumulate visible drift.
+#let grace-member-width(note-head-width) = {
+  note-head-width / 0.7 * 0.75 * 0.72
+}
+
+#let grace-member-gap(note-head-width) = {
+  note-head-width / 0.7 * 0.12
+}
+
+#let grace-group-width(note, note-head-width) = {
+  note.members.len() * grace-member-width(note-head-width) + calc.max(note.members.len() - 1, 0) * grace-member-gap(note-head-width)
+}
+
+#let grace-head(note, note-head-width) = {
+  // Curves are deliberately deferred. This first pass only establishes the
+  // compact note group and its independent default duration.
+  let scale = 0.75
+  let beams = if note.members.len() > 0 { note.members.at(0).beams } else { 0 }
+  let dot-radius = 0.075em * scale
+  let dot-gap = 0.12em * scale
+  let member-width = grace-member-width(note-head-width)
+  let member-gap = grace-member-gap(note-head-width)
+  let max-up = note.members.fold(0, (count, member) => calc.max(count, member.octave-up))
+  let max-down = note.members.fold(0, (count, member) => calc.max(count, member.octave-down))
+  // Like ordinary beams, grace beams follow the note heads rather than their
+  // duration boxes. The reduced head size determines both end padding and
+  // total beam length.
+  let group-width = grace-group-width(note, note-head-width)
+  // Keep the familiar two-note end inset, but apply it only once instead of
+  // accidentally subtracting every internal member gap from a long beam.
+  let beam-width = if note.members.len() <= 1 { member-width } else { group-width - member-gap }
+  stack(dir: ttb, spacing: 0.08em,
+    stack(dir: ltr, spacing: member-gap,
+      ..note.members.map(member => box(width: member-width, height: octave-dots-height(max-up, dot-radius: dot-radius, dot-gap: dot-gap))[
+        #align(center + bottom)[#octave-dots(member.octave-up, dot-radius: dot-radius, dot-gap: dot-gap)]
+      ]),
+    ),
+    align(center)[
+      #stack(dir: ltr, spacing: member-gap,
+        ..note.members.map(member => box(width: member-width, align(center)[#text(size: scale * 1em)[#note-text(member)]])),
+      )
+    ],
+    ..range(0, beams).map(_ => align(center)[
+      #box(width: beam-width)[
+        #line(length: 100%, stroke: 0.04em)
+      ]
+    ]),
+    stack(dir: ltr, spacing: member-gap,
+      ..note.members.map(member => box(width: member-width, height: octave-dots-height(max-down, dot-radius: dot-radius, dot-gap: dot-gap))[
+        #align(center + top)[#octave-dots(member.octave-down, dot-radius: dot-radius, dot-gap: dot-gap)]
+      ]),
+    ),
+  )
+}
+
+// Single dispatch point for every event head painted by the layout module.
+#let note-head(note, note-head-width: 12pt) = {
+  box(width: note-head-width, align(center)[
+    #if note.kind == "grace" {
+      grace-head(note, note-head-width)
+    } else if note.kind == "chord" {
+      chord-head(note, note-head-width: note-head-width)
+    } else if is-extension-note(note) {
+      extension-line()
+    } else {
+      note-text(note)
+    }
+  ])
+}
+
+#let beam-line(length: 0.7em, thickness: 0.8pt) = {
+  line(length: length, stroke: thickness)
+}
+

@@ -2,7 +2,7 @@
 
 一个正在开发中的 Typst 简谱排版插件。
 
-内部实现按职责拆分：`src/parser.typ` 负责 raw 简谱解析与 score 模型，`src/geometry.typ` 负责由字号推导的私有尺寸；`jianpu.typ` 仍是唯一需要导入的公开入口。
+内部实现按职责拆分：`parser.typ` 解析输入，`geometry.typ` 提供全局尺寸，`glyphs.typ` 绘制局部记谱图元，`links.typ` 处理横向坐标与连线，`layout.typ` 负责小节、行和 track 渲染。`jianpu.typ` 只保留公开入口。
 
 ## 使用方式
 
