@@ -119,10 +119,13 @@
 
 #let extension-line(length: 0.72em, thickness: 0.08em) = {
   // Do not use the font's hyphen/minus glyph for extension notes: it is too
-  // short and sits on the text baseline. Draw a centered rule instead.
-  box(width: length, height: 1em, align(horizon)[
-    #move(dy: -0.08em)[#line(length: 100%, stroke: thickness)]
-  ])
+  // short and sits on the text baseline. Keep the drawn rule out of layout:
+  // otherwise a measure containing `-` gets a different vertical baseline.
+  box(width: length, height: 0pt)[
+    #place(horizon, dy: 0.42em)[
+      #line(length: 100%, stroke: thickness)
+    ]
+  ]
 }
 
 #let note-head(note, note-head-width: 12pt) = {
@@ -140,10 +143,22 @@
 }
 
 #let octave-dots(count, dot-radius: 0.7pt, dot-gap: 0.6pt) = {
-  box[
-    #stack(dir: ttb, spacing: dot-gap,
-      ..range(0, count).map(_ => circle(radius: dot-radius, fill: black)),
-    )
+  let dot-diameter = dot-radius * 2
+  let height = if count <= 0 {
+    0pt
+  } else {
+    count * dot-diameter + (count - 1) * dot-gap
+  }
+
+  // Lower octave dots are painted in a zero-height overlay. `stack` may
+  // stretch there according to its surrounding measure, so place every dot
+  // at an explicit offset to keep their vertical spacing invariant.
+  box(width: dot-diameter, height: height)[
+    #for index in range(0, count) {
+      place(top, dy: index * (dot-diameter + dot-gap))[
+        #circle(radius: dot-radius, fill: black)
+      ]
+    }
   ]
 }
 
