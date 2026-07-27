@@ -31,6 +31,12 @@
   width
 }
 
+#let grace-crosses-measure-boundary(left, right) = {
+  let left-connects = left.notes.len() > 0 and left.notes.at(left.notes.len() - 1).kind == "grace" and left.notes.at(left.notes.len() - 1).direction == "next"
+  let right-connects = right.notes.len() > 0 and right.notes.at(0).kind == "grace" and right.notes.at(0).direction == "previous"
+  left-connects or right-connects
+}
+
 #let wrap-measures(
   measures,
   line-width,
@@ -64,8 +70,18 @@
     // Only break between measures. If the candidate row would exceed the
     // available line width, commit the previous row first.
     if current.len() > 0 and candidate-width > available-width {
-      rows.push(current)
-      current = (measure,)
+      let protected-boundary = grace-crosses-measure-boundary(current.at(current.len() - 1), measure)
+      if protected-boundary and current.len() > 1 {
+        // Carry the preceding measure with the grace group so its target stays
+        // on the same system without allowing a break through the relationship.
+        rows.push(current.slice(0, current.len() - 1))
+        current = (current.at(current.len() - 1), measure)
+      } else if protected-boundary {
+        current = candidate
+      } else {
+        rows.push(current)
+        current = (measure,)
+      }
     } else {
       current = candidate
     }
@@ -188,42 +204,69 @@
   distance
 }
 
-// Link coordinates mirror the glyph module's grace widths and the renderer's
-// target-facing shift. Do not duplicate those constants here.
-#let row-link-positions(row, extra-gap, min-measure-gap, bar-width, bar-gap, note-head-width) = {
+#let row-event-positions(row, extra-gap, min-measure-gap, bar-width, bar-gap) = {
   let positions = ()
   let row-offset = 0pt
-
   for (measure-index, measure) in row.enumerate() {
     let leading-gap = if measure-index == 0 { 0pt } else { min-measure-gap + extra-gap }
     let side-gaps = measure-side-gaps(leading-gap, bar-gap, measure.bar)
     let note-gaps = note-gaps-from-extra(measure, extra-gap)
     let note-offset = row-offset + side-gaps.leading
-
     for (note-index, note) in measure.notes.enumerate() {
-      let event-center = note-offset + note.min-width / 2
+      positions.push((note: note, x: note-offset + note.min-width / 2, measure-index: measure-index, note-index: note-index))
+      note-offset += note.min-width
+      if note-index < measure.notes.len() - 1 { note-offset += note-gap-at(note-gaps, note-index) }
+    }
+    let measure-width = measure-min-width(measure, bar-width: bar-width, bar-gap: bar-gap) + extra-gap * calc.max(measure.notes.len() - 1, 0)
+    row-offset += leading-gap + measure-width
+  }
+  positions
+}
+
+#let grace-target-position(positions, index, direction) = {
+  let step = if direction == "previous" { -1 } else { 1 }
+  let target = index + step
+  while target >= 0 and target < positions.len() {
+    if positions.at(target).note.kind != "grace" { return target }
+    target += step
+  }
+  none
+}
+
+#let row-grace-targets(row, extra-gap, min-measure-gap, bar-width, bar-gap) = {
+  let positions = row-event-positions(row, extra-gap, min-measure-gap, bar-width, bar-gap)
+  positions.enumerate().map(((index, item)) => {
+    if item.note.kind != "grace" { none } else {
+      let target = grace-target-position(positions, index, item.note.direction)
+      if target == none { none } else {
+        let target-item = positions.at(target)
+        (distance: calc.abs(target-item.x - item.x), note: target-item.note)
+      }
+    }
+  })
+}
+
+// Link coordinates mirror the glyph module's grace widths and the renderer's
+// target-facing shift. Do not duplicate those constants here.
+#let row-link-positions(row, extra-gap, min-measure-gap, bar-width, bar-gap, note-head-width) = {
+  let positions = ()
+  let event-positions = row-event-positions(row, extra-gap, min-measure-gap, bar-width, bar-gap)
+  for (event-index, event) in event-positions.enumerate() {
+      let note = event.note
       if note.kind == "grace" {
-        let target = grace-target-index(measure, note-index, note.direction)
+        let target = grace-target-position(event-positions, event-index, note.direction)
         let target-shift = if target == none { 0pt } else { grace-target-shift(note-head-width) }
         let signed-shift = if note.direction == "previous" { -target-shift } else { target-shift }
         let member-width = grace-member-width(note-head-width)
         let member-gap = grace-member-gap(note-head-width)
         let group-width = grace-group-width(note, note-head-width)
         for item in event-link-items(note) {
-          let member-x = event-center + signed-shift - group-width / 2 + member-width / 2 + item.grace-index * (member-width + member-gap)
+          let member-x = event.x + signed-shift - group-width / 2 + member-width / 2 + item.grace-index * (member-width + member-gap)
           positions.push(item + (x: member-x))
         }
       } else {
-        positions.push((note: note, grace: false, x: event-center))
+        positions.push((note: note, grace: false, x: event.x))
       }
-      note-offset += note.min-width
-      if note-index < measure.notes.len() - 1 {
-        note-offset += note-gap-at(note-gaps, note-index)
-      }
-    }
-
-    let measure-width = measure-min-width(measure, bar-width: bar-width, bar-gap: bar-gap) + extra-gap * calc.max(measure.notes.len() - 1, 0)
-    row-offset += leading-gap + measure-width
   }
   positions
 }

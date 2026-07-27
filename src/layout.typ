@@ -93,6 +93,7 @@
   measure-data,
   extra-note-gap: 0pt,
   note-gaps: none,
+  grace-targets: none,
   leading-gap: 0pt,
   trailing-bar-gap: 6pt,
   bar-width: 5pt,
@@ -113,26 +114,40 @@
   for (index, note) in measure-data.notes.enumerate() {
     columns.push(note.min-width)
     if note.kind == "grace" {
-      let target = grace-target-index(measure-data, index, note.direction)
-      let distance = if target == none { 0pt } else { note-center-distance(measure-data, actual-note-gaps, index, target) }
+      let row-target = if grace-targets != none and index < grace-targets.len() { grace-targets.at(index) } else { none }
+      let local-target = if row-target == none { grace-target-index(measure-data, index, note.direction) } else { none }
+      let target-note = if row-target != none {
+        row-target.note
+      } else if local-target != none {
+        measure-data.notes.at(local-target)
+      } else {
+        none
+      }
+      let distance = if row-target != none {
+        row-target.distance
+      } else if local-target != none {
+        note-center-distance(measure-data, actual-note-gaps, index, local-target)
+      } else {
+        0pt
+      }
       // Compensate for every octave-dot row. This first pins the complete
       // grace box's bottom edge instead of letting added dots push it down.
       let nominal-grace-lift = grace-lift(note-head-width) + grace-octave-extra(note, note-head-width)
-      let target-shift = if target == none { 0pt } else { grace-target-shift(note-head-width) }
+      let target-shift = if target-note == none { 0pt } else { grace-target-shift(note-head-width) }
       let signed-shift = if note.direction == "previous" { -target-shift } else { target-shift }
       cells.push(context {
         let grace-body = note-head(note, note-head-width: note-head-width)
         let grace-size = measure(grace-body)
-        let target-size = if target == none {
+        let target-size = if target-note == none {
           (width: 0pt, height: 0pt)
         } else {
-          measure(note-head(measure-data.notes.at(target), note-head-width: note-head-width))
+          measure(note-head(target-note, note-head-width: note-head-width))
         }
         let main-center = target-size.height / 2
         let nominal-grace-bottom = grace-size.height - nominal-grace-lift
         // Keep a visible vertical head even when many lower dots would place
         // the measured bottom almost level with the main note's center.
-        let grace-bottom = if target == none {
+        let grace-bottom = if target-note == none {
           nominal-grace-bottom
         } else {
           calc.min(nominal-grace-bottom, main-center - grace-link-min-rise(note-head-width))
@@ -143,7 +158,7 @@
         let endpoint-distance = calc.max(distance - target-size.width / 2 - target-shift, 0pt)
         box(width: note.min-width)[
           #align(center)[#move(dx: signed-shift, dy: -actual-grace-lift)[#grace-body]]
-          #if target != none {
+          #if target-note != none {
             place(top + left, dx: note.min-width / 2 + signed-shift, dy: grace-bottom)[
               #grace-link(endpoint-distance, note.direction, main-center - grace-bottom)
             ]
@@ -397,6 +412,7 @@
   measure,
   extra-note-gap: 0pt,
   note-gaps: none,
+  grace-targets: none,
   leading-gap: 0pt,
   bar-width: 5pt,
   bar-gap: 6pt,
@@ -435,7 +451,7 @@
   }
 
   parts.push(render-layer-with-lower-dots(
-    render-note-row(measure, extra-note-gap: extra-note-gap, note-gaps: actual-note-gaps, leading-gap: side-gaps.leading, trailing-bar-gap: side-gaps.trailing, bar-width: bar-width, bar-gap: bar-gap, note-head-width: beam-note-width, bar-height: bar-height, bar-top-offset: bar-top-offset),
+    render-note-row(measure, extra-note-gap: extra-note-gap, note-gaps: actual-note-gaps, grace-targets: grace-targets, leading-gap: side-gaps.leading, trailing-bar-gap: side-gaps.trailing, bar-width: bar-width, bar-gap: bar-gap, note-head-width: beam-note-width, bar-height: bar-height, bar-top-offset: bar-top-offset),
     lower-dots: if has-lower-dots(measure, 0) {
       render-lower-dot-row(measure, 0, extra-note-gap: extra-note-gap, note-gaps: actual-note-gaps, leading-gap: side-gaps.leading, trailing-bar-gap: side-gaps.trailing, bar-width: bar-width, bar-gap: bar-gap, note-head-width: beam-note-width, dot-radius: dot-radius, dot-gap: dot-gap)
     } else {
@@ -495,6 +511,9 @@
   } else {
     0pt
   }
+  // Grace-to-main-note curves use row coordinates so their target may live in
+  // the adjacent measure and the curve may pass through the intervening bar.
+  let grace-targets = row-grace-targets(row, extra-gap, min-measure-gap, bar-width, bar-gap)
   let note-positions = row-link-positions(row, extra-gap, min-measure-gap, bar-width, bar-gap, beam-note-width)
   let notation-links = if link-fragments == none { notation-links-from-items(note-positions) } else { link-fragments }
   let columns = ()
@@ -530,6 +549,7 @@
   let bar-note-height = beam-note-width
   let bar-height = bar-top-offset + bar-note-height + bar-lower-extension
 
+  let event-offset = 0
   for (index, measure) in row.enumerate() {
     let leading-gap = if index == 0 {
       0pt
@@ -538,12 +558,15 @@
     }
     let measure-width = measure-min-width(measure, bar-width: bar-width, bar-gap: bar-gap) + extra-gap * calc.max(measure.notes.len() - 1, 0)
     let note-gaps = note-gaps-from-extra(measure, extra-gap)
+    let measure-grace-targets = grace-targets.slice(event-offset, event-offset + measure.notes.len())
+    event-offset += measure.notes.len()
 
     columns.push(leading-gap + measure-width)
     cells.push(render-measure(
       measure,
       extra-note-gap: extra-gap,
       note-gaps: note-gaps,
+      grace-targets: measure-grace-targets,
       leading-gap: leading-gap,
       bar-width: bar-width,
       bar-gap: bar-gap,
