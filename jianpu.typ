@@ -36,6 +36,20 @@
   token.split(",").len() - 1
 }
 
+#let first-octave-direction(token) = {
+  // A note cannot be both above and below the reference octave. When malformed
+  // input mixes markers, the first marker in source order wins.
+  for character in token {
+    if character == "'" {
+      return "up"
+    }
+    if character == "," {
+      return "down"
+    }
+  }
+  none
+}
+
 #let pitch-index(token) = {
   let head = token.at(0)
   if head == "X" {
@@ -62,8 +76,9 @@
 }
 
 #let parse-note(token, quarter-width: 36pt, eighth-width: 27pt, short-width: 18pt) = {
-  let octave-up = octave-up-count(token)
-  let octave-down = octave-down-count(token)
+  let octave-direction = first-octave-direction(token)
+  let octave-up = if octave-direction == "up" { octave-up-count(token) } else { 0 }
+  let octave-down = if octave-direction == "down" { octave-down-count(token) } else { 0 }
   let octave = octave-up - octave-down
 
   (
@@ -360,6 +375,24 @@
   height
 }
 
+#let chord-digit-height(note, note-head-width) = {
+  if note.kind == "chord" {
+    chord-member-offset(note, note.members.len() - 1, note-head-width)
+  } else {
+    0pt
+  }
+}
+
+#let row-max-chord-digit-height(row, note-head-width) = {
+  let height = 0pt
+  for measure in row {
+    for note in measure.notes {
+      height = calc.max(height, chord-digit-height(note, note-head-width))
+    }
+  }
+  height
+}
+
 #let has-beam-level(measure, level) = {
   for note in measure.notes {
     if note.beams >= level {
@@ -508,6 +541,19 @@
   }
 }
 
+#let measure-bar-line(width, height, top-offset, stroke) = {
+  // The bar line reaches the row's highest chord note-head, while its lower
+  // end stays at the ordinary note-head height. Octave dots and beam lines do
+  // not lengthen it. It is an overlay so it cannot alter layout.
+  box(width: width, height: 0pt)[
+    #place(top, dy: -top-offset)[
+      #box(width: width, align(center)[
+        #line(length: height, angle: 90deg, stroke: stroke)
+      ])
+    ]
+  ]
+}
+
 #let render-note-row(
   measure,
   extra-note-gap: 0pt,
@@ -517,6 +563,8 @@
   bar-width: 5pt,
   bar-gap: 6pt,
   note-head-width: 12pt,
+  bar-height: 16pt,
+  bar-top-offset: 0pt,
 ) = {
   let columns = ()
   let cells = ()
@@ -547,7 +595,12 @@
     columns.push(trailing-bar-gap)
     cells.push([])
     columns.push(bar-width)
-    cells.push(align(center)[|])
+    cells.push(measure-bar-line(
+      bar-width,
+      bar-height,
+      bar-top-offset,
+      bar-width * 0.22,
+    ))
   }
 
   box[
@@ -797,6 +850,8 @@
   dot-radius: 0.7pt,
   dot-gap: 0.6pt,
   upper-dot-height: 0pt,
+  bar-height: 16pt,
+  bar-top-offset: 0pt,
 ) = {
   let parts = ()
   let actual-note-gaps = if note-gaps == none {
@@ -828,7 +883,7 @@
   }
 
   parts.push(render-layer-with-lower-dots(
-    render-note-row(measure, extra-note-gap: extra-note-gap, note-gaps: actual-note-gaps, leading-gap: side-gaps.leading, trailing-bar-gap: side-gaps.trailing, bar-width: bar-width, bar-gap: bar-gap, note-head-width: beam-note-width),
+    render-note-row(measure, extra-note-gap: extra-note-gap, note-gaps: actual-note-gaps, leading-gap: side-gaps.leading, trailing-bar-gap: side-gaps.trailing, bar-width: bar-width, bar-gap: bar-gap, note-head-width: beam-note-width, bar-height: bar-height, bar-top-offset: bar-top-offset),
     lower-dots: if has-lower-dots(measure, 0) {
       render-lower-dot-row(measure, 0, extra-note-gap: extra-note-gap, note-gaps: actual-note-gaps, leading-gap: side-gaps.leading, trailing-bar-gap: side-gaps.trailing, bar-width: bar-width, bar-gap: bar-gap, note-head-width: beam-note-width, dot-radius: dot-radius, dot-gap: dot-gap)
     } else {
@@ -891,6 +946,11 @@
     octave-dots-height(row-max-octave-up(row), dot-radius: dot-radius, dot-gap: dot-gap),
     row-max-chord-upper-height(row, beam-note-width),
   )
+  let bar-lower-extension = beam-note-width * 0.30
+  let bar-upper-extension = bar-lower-extension * 1.5
+  let bar-top-offset = row-max-chord-digit-height(row, beam-note-width) + bar-upper-extension
+  let bar-note-height = beam-note-width
+  let bar-height = bar-top-offset + bar-note-height + bar-lower-extension
 
   for (index, measure) in row.enumerate() {
     let leading-gap = if index == 0 {
@@ -915,6 +975,8 @@
       dot-radius: dot-radius,
       dot-gap: dot-gap,
       upper-dot-height: upper-dot-height,
+      bar-height: bar-height,
+      bar-top-offset: bar-top-offset,
     ))
   }
 
