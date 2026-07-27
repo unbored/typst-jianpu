@@ -81,11 +81,16 @@
 }
 
 #let parse-event(token, quarter-width, eighth-width, short-width, sort-chords: true) = {
-  if token.starts-with("c[") and token.contains("]") {
-    parse-chord(token, quarter-width, eighth-width, short-width, sort-chords: sort-chords)
-  } else if (token.starts-with("g[") or token.starts-with("g<[")) and token.contains("]") {
-    parse-grace(token, quarter-width, eighth-width, short-width)
-  } else { parse-note(token, quarter-width, eighth-width, short-width) }
+  let slur-start = token.split("(").len() - 1
+  let slur-end = token.split(")").len() - 1
+  let tie-start = token.split("~").len() - 1
+  let core = token.replace("(", "").replace(")", "").replace("~", "")
+  let event = if core.starts-with("c[") and core.contains("]") {
+    parse-chord(core, quarter-width, eighth-width, short-width, sort-chords: sort-chords)
+  } else if (core.starts-with("g[") or core.starts-with("g<[")) and core.contains("]") {
+    parse-grace(core, quarter-width, eighth-width, short-width)
+  } else { parse-note(core, quarter-width, eighth-width, short-width) }
+  event + (slur-start: slur-start, slur-end: slur-end, tie-start: tie-start)
 }
 
 #let parse-measures(tokens, quarter-width, eighth-width, short-width, sort-chords: true) = {
@@ -123,7 +128,21 @@
     else { tokens.push(token) }
   }
   if compound != none { tokens.push(compound) }
-  tokens
+
+  let attached = ()
+  for token in tokens {
+    // Standalone LilyPond-style marks belong to the preceding event, so
+    // `1 ( 2 )` and `1( 2)` produce the same parser input.
+    let standalone-link = token == "(" or token == ")" or token == "~"
+    let has-preceding-event = attached.len() > 0 and attached.at(attached.len() - 1) != "|"
+    if standalone-link and has-preceding-event {
+      let last = attached.at(attached.len() - 1)
+      attached = attached.slice(0, attached.len() - 1) + (last + token,)
+    } else {
+      attached.push(token)
+    }
+  }
+  attached
 }
 
 #let parse-track(group, quarter-width, eighth-width, short-width, sort-chords) = (

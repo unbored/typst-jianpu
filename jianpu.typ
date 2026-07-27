@@ -440,6 +440,210 @@
   distance
 }
 
+#let row-note-positions(row, extra-gap, min-measure-gap, bar-width, bar-gap) = {
+  let positions = ()
+  let row-offset = 0pt
+
+  for (measure-index, measure) in row.enumerate() {
+    let leading-gap = if measure-index == 0 { 0pt } else { min-measure-gap + extra-gap }
+    let side-gaps = measure-side-gaps(leading-gap, bar-gap, measure.bar)
+    let note-gaps = note-gaps-from-extra(measure, extra-gap)
+    let note-offset = row-offset + side-gaps.leading
+
+    for (note-index, note) in measure.notes.enumerate() {
+      positions.push((note: note, x: note-offset + note.min-width / 2))
+      note-offset += note.min-width
+      if note-index < measure.notes.len() - 1 {
+        note-offset += note-gap-at(note-gaps, note-index)
+      }
+    }
+
+    let measure-width = measure-min-width(measure, bar-width: bar-width, bar-gap: bar-gap) + extra-gap * calc.max(measure.notes.len() - 1, 0)
+    row-offset += leading-gap + measure-width
+  }
+  positions
+}
+
+#let notation-links-from-items(items) = {
+  let links = ()
+  let open-slurs = ()
+
+  for (index, item) in items.enumerate() {
+    for _ in range(0, item.note.slur-start) {
+      open-slurs.push(index)
+    }
+    for _ in range(0, item.note.slur-end) {
+      if open-slurs.len() > 0 {
+        let start = open-slurs.pop()
+        if start < index { links.push((kind: "slur", start: start, end: index)) }
+      }
+    }
+    if item.note.tie-start > 0 {
+      let target = index + 1
+      while target < items.len() and items.at(target).note.kind == "grace" {
+        target += 1
+      }
+      if target < items.len() {
+        links.push((kind: "tie", start: index, end: target))
+      }
+    }
+  }
+  links
+}
+
+#let row-link-fragments(links, row-start, row-count) = {
+  let fragments = ()
+  let row-end = row-start + row-count - 1
+  for link in links {
+    if link.start <= row-end and link.end >= row-start {
+      fragments.push((
+        kind: link.kind,
+        start: if link.start < row-start { none } else { link.start - row-start },
+        end: if link.end > row-end { none } else { link.end - row-start },
+      ))
+    }
+  }
+  fragments
+}
+
+#let notation-link-upper-height(note, note-head-width, dot-radius, dot-gap) = {
+  calc.max(
+    octave-dots-height(note.octave-up, dot-radius: dot-radius, dot-gap: dot-gap),
+    chord-upper-height(note, note-head-width),
+  )
+}
+
+#let notation-arc(width, start-y, end-y, height, thickness: 0.08em) = {
+  let top-y = calc.min(start-y, end-y) - height
+  let outer-y = top-y - thickness / 2
+  let inner-y = top-y + thickness / 2
+  let end-radius = thickness * 0.275
+  let cap-control = end-radius * 4 / 3
+  curve(
+    fill: black,
+    curve.move((0pt, start-y - end-radius)),
+    curve.cubic((width * 0.28, outer-y), (width * 0.72, outer-y), (width, end-y - end-radius)),
+    curve.cubic((width + cap-control, end-y - end-radius), (width + cap-control, end-y + end-radius), (width, end-y + end-radius)),
+    // The return boundary stays lower, while semicircular end caps preserve a
+    // small initial width instead of tapering all the way to a sharp point.
+    curve.cubic((width * 0.72, inner-y), (width * 0.28, inner-y), (0pt, start-y + end-radius)),
+    curve.cubic((-cap-control, start-y + end-radius), (-cap-control, start-y - end-radius), (0pt, start-y - end-radius)),
+    curve.close(mode: "straight"),
+  )
+}
+
+#let notation-open-arc(width, endpoint-y, height, direction, thickness: 0.08em) = {
+  let peak-y = endpoint-y - height
+  let outer-y = peak-y - thickness / 2
+  let inner-y = peak-y + thickness / 2
+  let end-radius = thickness * 0.275
+  let cap-control = end-radius * 4 / 3
+  if direction == "outgoing" {
+    curve(
+      fill: black,
+      curve.move((0pt, endpoint-y - end-radius)),
+      curve.cubic((width * 0.28, outer-y), (width * 0.72, outer-y), (width, outer-y)),
+      // A system boundary is a cut through a continuing ribbon, not a musical
+      // endpoint, so retain full thickness and close it with a flat edge.
+      curve.line((width, inner-y)),
+      curve.cubic((width * 0.72, inner-y), (width * 0.28, inner-y), (0pt, endpoint-y + end-radius)),
+      curve.cubic((-cap-control, endpoint-y + end-radius), (-cap-control, endpoint-y - end-radius), (0pt, endpoint-y - end-radius)),
+      curve.close(mode: "straight"),
+    )
+  } else {
+    curve(
+      fill: black,
+      curve.move((0pt, outer-y)),
+      curve.cubic((width * 0.28, outer-y), (width * 0.72, outer-y), (width, endpoint-y - end-radius)),
+      curve.cubic((width + cap-control, endpoint-y - end-radius), (width + cap-control, endpoint-y + end-radius), (width, endpoint-y + end-radius)),
+      curve.cubic((width * 0.72, inner-y), (width * 0.28, inner-y), (0pt, inner-y)),
+      curve.line((0pt, outer-y)),
+      curve.close(mode: "straight"),
+    )
+  }
+}
+
+#let notation-through-arc(width, baseline-y, height, thickness: 0.08em) = {
+  let top-y = baseline-y - height
+  let outer-y = top-y - thickness / 2
+  let inner-y = top-y + thickness / 2
+  curve(
+    fill: black,
+    curve.move((0pt, baseline-y - thickness / 2)),
+    curve.cubic((width * 0.28, outer-y), (width * 0.72, outer-y), (width, baseline-y - thickness / 2)),
+    curve.line((width, baseline-y + thickness / 2)),
+    curve.cubic((width * 0.72, inner-y), (width * 0.28, inner-y), (0pt, baseline-y + thickness / 2)),
+    curve.line((0pt, baseline-y - thickness / 2)),
+    curve.close(mode: "straight"),
+  )
+}
+
+#let notation-link-mode(link) = {
+  if link.start != none and link.end != none { "complete" }
+  else if link.start != none { "outgoing" }
+  else if link.end != none { "incoming" }
+  else { "through" }
+}
+
+#let notation-required-height(mode, t, start-y, end-y, obstacle-y) = {
+  let one-minus = 1 - t
+  let base-y = 0pt
+  let coefficient = 0.0
+  if mode == "complete" {
+    let control-y = calc.min(start-y, end-y)
+    base-y = one-minus * one-minus * one-minus * start-y + 3 * one-minus * one-minus * t * control-y + 3 * one-minus * t * t * control-y + t * t * t * end-y
+    coefficient = 3 * t * one-minus
+  } else if mode == "outgoing" {
+    base-y = start-y
+    coefficient = 1 - one-minus * one-minus * one-minus
+  } else if mode == "incoming" {
+    base-y = end-y
+    coefficient = 1 - t * t * t
+  }
+  if coefficient <= 0.001 { 0pt } else { calc.max((base-y - obstacle-y) / coefficient, 0pt) }
+}
+
+#let notation-link-arc-height(
+  link,
+  positions,
+  line-width,
+  base-height,
+  note-head-width,
+  dot-radius,
+  dot-gap,
+  beam-gap,
+  clearance,
+) = {
+  let mode = notation-link-mode(link)
+  if mode == "through" { return base-height }
+  let inset = if link.kind == "tie" { note-head-width * 0.24 } else { note-head-width * 0.10 }
+  let boundary-inset = note-head-width * 0.12
+  let start-item = if link.start == none { none } else { positions.at(link.start) }
+  let end-item = if link.end == none { none } else { positions.at(link.end) }
+  let start-x = if start-item == none { boundary-inset } else { start-item.x + inset }
+  let end-x = if end-item == none { line-width - boundary-inset } else { end-item.x - inset }
+  let width = calc.max(end-x - start-x, note-head-width * 0.2)
+  let start-upper = if start-item == none { 0pt } else { notation-link-upper-height(start-item.note, note-head-width, dot-radius, dot-gap) }
+  let end-upper = if end-item == none { 0pt } else { notation-link-upper-height(end-item.note, note-head-width, dot-radius, dot-gap) }
+  let start-y = -start-upper - clearance
+  let end-y = -end-upper - clearance
+  let first = if link.start == none { 0 } else { link.start + 1 }
+  let last = if link.end == none { positions.len() - 1 } else { link.end - 1 }
+  let height = base-height
+
+  if first <= last {
+    for index in range(first, last + 1) {
+      let item = positions.at(index)
+      let t = calc.clamp((item.x - start-x) / width, 0.0, 1.0)
+      let upper = notation-link-upper-height(item.note, note-head-width, dot-radius, dot-gap)
+      let obstacle-top = if upper > 0pt { -upper } else { beam-gap }
+      let required = notation-required-height(mode, t, start-y, end-y, obstacle-top - clearance)
+      height = calc.max(height, required)
+    }
+  }
+  height
+}
+
 #let grace-link(distance, direction, rise, thickness: 0.045em) = {
   let end-x = if direction == "previous" { -distance } else { distance }
   let corner = (0pt, rise)
@@ -905,6 +1109,7 @@
   beam-thickness: 0.8pt,
   dot-radius: 0.7pt,
   dot-gap: 0.6pt,
+  link-fragments: none,
   justify: true,
 ) = {
   let min-width = row-min-width(row, min-measure-gap: min-measure-gap, bar-width: bar-width, bar-gap: bar-gap)
@@ -919,6 +1124,8 @@
   } else {
     0pt
   }
+  let note-positions = row-note-positions(row, extra-gap, min-measure-gap, bar-width, bar-gap)
+  let notation-links = if link-fragments == none { notation-links-from-items(note-positions) } else { link-fragments }
   let columns = ()
   let cells = ()
   let notation-upper-height = calc.max(
@@ -928,7 +1135,17 @@
   // `move` does not affect layout bounds, so reserve the same distance that
   // grace groups are lifted above the ordinary note row.
   let grace-upper-reserve = row-grace-lift(row, beam-note-width)
-  let upper-dot-height = calc.max(notation-upper-height, grace-upper-reserve)
+  let endpoint-clearance = beam-note-width * 0.16
+  let max-link-arc-height = 0pt
+  for link in notation-links {
+    let base-height = if link.kind == "tie" { beam-note-width * 0.42 } else { beam-note-width * 0.68 }
+    max-link-arc-height = calc.max(
+      max-link-arc-height,
+      notation-link-arc-height(link, note-positions, line-width, base-height, beam-note-width, dot-radius, dot-gap, beam-gap, endpoint-clearance),
+    )
+  }
+  let link-upper-reserve = if notation-links.len() > 0 { max-link-arc-height + endpoint-clearance + beam-note-width * 0.14 } else { 0pt }
+  let upper-dot-height = calc.max(notation-upper-height + link-upper-reserve, grace-upper-reserve)
   let bar-lower-extension = beam-note-width * 0.30
   let bar-upper-extension = bar-lower-extension * 1.5
   let bar-top-offset = row-max-chord-digit-height(row, beam-note-width) + bar-upper-extension
@@ -965,6 +1182,37 @@
 
   block(width: 100%)[
     #grid(columns: columns, gutter: 0pt, ..cells)
+    // Links are row-level overlays, so a span may cross a bar line without
+    // changing measure widths or the note/beam alignment underneath.
+    #for link in notation-links {
+      let start = if link.start == none { none } else { note-positions.at(link.start) }
+      let end = if link.end == none { none } else { note-positions.at(link.end) }
+      let inset = if link.kind == "tie" { beam-note-width * 0.24 } else { beam-note-width * 0.10 }
+      let boundary-inset = beam-note-width * 0.12
+      let start-x = if start == none { boundary-inset } else { start.x + inset }
+      let end-x = if end == none { line-width - boundary-inset } else { end.x - inset }
+      let width = calc.max(end-x - start-x, beam-note-width * 0.2)
+      let base-arc-height = if link.kind == "tie" { beam-note-width * 0.42 } else { beam-note-width * 0.68 }
+      let arc-height = notation-link-arc-height(link, note-positions, line-width, base-arc-height, beam-note-width, dot-radius, dot-gap, beam-gap, endpoint-clearance)
+      // Use the same clearance above a digit or its upper-dot stack. This
+      // keeps unmarked endpoints from appearing noticeably tighter.
+      let digit-endpoint = upper-dot-height - endpoint-clearance
+      let start-upper-height = if start == none { 0pt } else { notation-link-upper-height(start.note, beam-note-width, dot-radius, dot-gap) }
+      let end-upper-height = if end == none { 0pt } else { notation-link-upper-height(end.note, beam-note-width, dot-radius, dot-gap) }
+      let start-y = if start-upper-height > 0pt { upper-dot-height - start-upper-height - endpoint-clearance } else { digit-endpoint }
+      let end-y = if end-upper-height > 0pt { upper-dot-height - end-upper-height - endpoint-clearance } else { digit-endpoint }
+      place(top + left, dx: start-x)[
+        #if start != none and end != none {
+          notation-arc(width, start-y, end-y, arc-height)
+        } else if start != none {
+          notation-open-arc(width, start-y, arc-height, "outgoing")
+        } else if end != none {
+          notation-open-arc(width, end-y, arc-height, "incoming")
+        } else {
+          notation-through-arc(width, beam-note-width * 0.16, beam-note-width * 0.08)
+        }
+      ]
+    }
   ]
 }
 
@@ -998,6 +1246,18 @@
     bar-gap: bar-gap,
   )
 
+  let track-items = ()
+  for measure in track.measures {
+    for note in measure.notes { track-items.push((note: note)) }
+  }
+  let track-links = notation-links-from-items(track-items)
+  let row-starts = ()
+  let note-offset = 0
+  for row in rows {
+    row-starts.push(note-offset)
+    note-offset += row-note-count(row)
+  }
+
   stack(dir: ttb, spacing: row-gap,
     ..rows.enumerate().map(((index, row)) => {
       let row-line-width = if index == 0 {
@@ -1005,6 +1265,7 @@
       } else {
         line-width
       }
+      let fragments = row-link-fragments(track-links, row-starts.at(index), row-note-count(row))
       let row-content = render-row(
         row,
         row-line-width,
@@ -1016,6 +1277,7 @@
         beam-thickness: beam-thickness,
         dot-radius: dot-radius,
         dot-gap: dot-gap,
+        link-fragments: fragments,
         justify: justify and (justify-last or index < rows.len() - 1),
       )
 
