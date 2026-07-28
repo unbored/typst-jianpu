@@ -7,6 +7,7 @@
 }
 
 #let slash-count(token) = { token.split("/").len() - 1 }
+#let augmentation-dot-count(token) = { token.split(".").len() - 1 }
 #let octave-up-count(token) = { token.split("'").len() - 1 }
 #let octave-down-count(token) = { token.split(",").len() - 1 }
 #let slur-start-count(token) = { token.split("(").len() - 1 }
@@ -58,11 +59,15 @@
   let octave-down = if direction == "down" { octave-down-count(core) } else { 0 }
   let octave = octave-up - octave-down
   let pitch = pitch-index(core)
+  let dots = augmentation-dot-count(core)
+  let base-width = duration-width(core, quarter-width, eighth-width, short-width)
   (
     raw: core, kind: "note", members: (), beams: slash-count(core),
+    dots: dots,
     pitch: pitch, octave: octave, relative-pitch: pitch + octave * 7,
     octave-up: octave-up, octave-down: octave-down,
-    min-width: duration-width(core, quarter-width, eighth-width, short-width),
+    // Each augmentation dot contributes half of the undotted duration box.
+    min-width: base-width * (1 + dots * 0.5),
     slur-start: slur-start-count(token), slur-end: slur-end-count(token), tie-start: tie-start-count(token),
   )
 }
@@ -78,6 +83,7 @@
   let duration = parse-note("1" + suffix, quarter-width, eighth-width, short-width)
   (
     raw: root.raw, kind: "chord", members: ordered, beams: duration.beams,
+    dots: duration.dots,
     pitch: root.pitch, octave: root.octave, relative-pitch: root.relative-pitch,
     octave-up: root.octave-up, octave-down: root.octave-down, min-width: duration.min-width,
     slur-start: duration.slur-start, slur-end: duration.slur-end, tie-start: duration.tie-start,
@@ -90,13 +96,13 @@
   let parts = token.split("]")
   let outer-suffix = if parts.len() > 1 { parts.at(1) } else { "" }
   let stripped-suffix = strip-link-marks(outer-suffix)
-  let duration-suffix = if stripped-suffix == "" { "//" } else { stripped-suffix }
+  let duration-suffix = if stripped-suffix.contains("/") { stripped-suffix } else { "//" + stripped-suffix }
   let member-tokens = parts.at(0).slice(prefix-length).split(" ").filter(member => member != "")
   let members = attach-standalone-link-marks(member-tokens)
     .map(member => parse-note(member + duration-suffix, quarter-width, eighth-width, short-width))
   (
     raw: token, kind: "grace", members: members, direction: direction,
-    beams: 0, pitch: 0, octave: 0, relative-pitch: 0,
+    beams: 0, dots: if members.len() > 0 { members.at(0).dots } else { 0 }, pitch: 0, octave: 0, relative-pitch: 0,
     octave-up: 0, octave-down: 0,
     slur-start: slur-start-count(outer-suffix), slur-end: slur-end-count(outer-suffix), tie-start: tie-start-count(outer-suffix),
     // The rendered group uses 0.54em member boxes and 0.12em internal gaps.

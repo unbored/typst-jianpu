@@ -278,6 +278,53 @@
   width
 }
 
+#let note-quarter-duration(note) = {
+  let base = 1.0 / calc.pow(2, note.beams)
+  base * (1 + note.dots * 0.5)
+}
+
+#let beam-quarter-groups(measure) = {
+  let groups = ()
+  let start = none
+  let duration = 0.0
+
+  for (index, note) in measure.notes.enumerate() {
+    if note.beams <= 0 {
+      if start != none { groups.push((start: start, end: index - 1)) }
+      start = none
+      duration = 0.0
+    } else {
+      let note-duration = note-quarter-duration(note)
+      if start == none {
+        start = index
+        duration = note-duration
+      } else if duration + note-duration > 1.0 {
+        groups.push((start: start, end: index - 1))
+        start = index
+        duration = note-duration
+      } else {
+        duration += note-duration
+      }
+
+      if duration >= 1.0 {
+        groups.push((start: start, end: index))
+        start = none
+        duration = 0.0
+      }
+    }
+  }
+
+  if start != none { groups.push((start: start, end: measure.notes.len() - 1)) }
+  groups
+}
+
+#let beam-quarter-group-end(groups, index) = {
+  for group in groups {
+    if index >= group.start and index <= group.end { return group.end }
+  }
+  index
+}
+
 #let render-beam-row(
   measure,
   level,
@@ -295,6 +342,7 @@
   let columns = ()
   let cells = ()
   let actual-note-gaps = resolve-note-gaps(measure, note-gaps, extra-note-gap)
+  let quarter-groups = beam-quarter-groups(measure)
 
   if leading-gap > 0pt {
     columns.push(leading-gap)
@@ -307,7 +355,10 @@
     if note.beams >= level {
       let start = index
       let end = index
-      while end + 1 < count and measure.notes.at(end + 1).beams >= level {
+      let quarter-group-end = beam-quarter-group-end(quarter-groups, index)
+      // All beam levels obey the same quarter-note boundary. A deeper level
+      // may stop earlier, but it can never reconnect across that boundary.
+      while end + 1 <= quarter-group-end and measure.notes.at(end + 1).beams >= level {
         end += 1
       }
 

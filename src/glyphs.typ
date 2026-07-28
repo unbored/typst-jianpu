@@ -6,6 +6,30 @@
   note.raw.at(0)
 }
 
+#let augmented-head(note, body, visible-body, slot-width, scale: 1.0) = context {
+  let visible-size = measure(visible-body)
+  let radius = 0.09em * scale
+  let head-gap = 0.20em * scale
+  let dot-gap = 0.10em * scale
+  let dot-top = visible-size.height * 0.60 - radius
+
+  // The duration box grows with the dot, but the main digit remains centered
+  // in its original head slot. Dot-to-digit spacing therefore never depends
+  // on whether the note is a quarter, eighth, or shorter duration.
+  box(width: slot-width, height: visible-size.height)[
+    #align(center)[#body]
+    #for index in range(0, note.dots) {
+      place(
+        top + left,
+        dx: slot-width / 2 + visible-size.width / 2 + head-gap + index * (radius * 2 + dot-gap),
+        dy: dot-top,
+      )[
+        #circle(radius: radius, fill: black)
+      ]
+    }
+  ]
+}
+
 #let is-extension-note(note) = {
   note.raw.at(0) == "-"
 }
@@ -199,7 +223,10 @@
     ),
     align(center)[
       #stack(dir: ltr, spacing: member-gap,
-        ..note.members.map(member => box(width: member-width, align(center)[#text(size: scale * 1em)[#note-text(member)]])),
+        ..note.members.map(member => {
+          let body = text(size: scale * 1em)[#note-text(member)]
+          augmented-head(member, body, body, member-width, scale: scale)
+        }),
       )
     ],
     ..range(0, beams).map(_ => align(center)[
@@ -217,20 +244,25 @@
 
 // Single dispatch point for every event head painted by the layout module.
 #let note-head(note, note-head-width: 12pt) = {
-  box(width: note-head-width, align(center)[
-    #if note.kind == "grace" {
-      grace-head(note, note-head-width)
-    } else if note.kind == "chord" {
+  if note.kind == "grace" {
+    box(width: note-head-width, align(center)[#grace-head(note, note-head-width)])
+  } else {
+    let body = if note.kind == "chord" {
       chord-head(note, note-head-width: note-head-width)
     } else if is-extension-note(note) {
       extension-line()
     } else {
       note-text(note)
     }
-  ])
+    let visible-body = if note.kind == "chord" and note.members.len() > 0 {
+      note-text(note.members.at(0))
+    } else {
+      note-text(note)
+    }
+    augmented-head(note, body, visible-body, note-head-width)
+  }
 }
 
 #let beam-line(length: 0.7em, thickness: 0.8pt) = {
   line(length: length, stroke: thickness)
 }
-
