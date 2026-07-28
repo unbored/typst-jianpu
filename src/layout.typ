@@ -133,7 +133,8 @@
       // Compensate for every octave-dot row. This first pins the complete
       // grace box's bottom edge instead of letting added dots push it down.
       let nominal-grace-lift = grace-lift(note-head-width) + grace-octave-extra(note, note-head-width)
-      let target-shift = if target-note == none { 0pt } else { grace-target-shift(note-head-width) }
+      let same-measure-target = if row-target != none { row-target.same-measure } else { local-target != none }
+      let target-shift = if target-note == none { 0pt } else { grace-target-shift(note, distance, note-head-width, same-measure: same-measure-target) }
       let signed-shift = if note.direction == "previous" { -target-shift } else { target-shift }
       cells.push(context {
         let grace-body = note-head(note, note-head-width: note-head-width)
@@ -142,6 +143,13 @@
           (width: 0pt, height: 0pt)
         } else {
           measure(note-head(target-note, note-head-width: note-head-width))
+        }
+        let row-height = if target-note != none {
+          target-size.height
+        } else if note.members.len() > 0 {
+          measure(note-head(note.members.at(0), note-head-width: note-head-width)).height
+        } else {
+          note-head-width
         }
         let main-center = target-size.height / 2
         let nominal-grace-bottom = grace-size.height - nominal-grace-lift
@@ -156,8 +164,11 @@
         // Move the independent grace group slightly toward its target. The arc
         // starts at the shifted box center, so its horizontal span shrinks too.
         let endpoint-distance = calc.max(distance - target-size.width / 2 - target-shift, 0pt)
-        box(width: note.min-width)[
-          #align(center)[#move(dx: signed-shift, dy: -actual-grace-lift)[#grace-body]]
+        // The lifted grace group is an overlay on the ordinary digit row. If
+        // its measured height participates here, every following beam and
+        // lower-dot layer in the measure is pushed too far downward.
+        box(width: note.min-width, height: row-height)[
+          #place(top + center, dx: signed-shift, dy: -actual-grace-lift)[#grace-body]
           #if target-note != none {
             place(top + left, dx: note.min-width / 2 + signed-shift, dy: grace-bottom)[
               #grace-link(endpoint-distance, note.direction, main-center - grace-bottom)

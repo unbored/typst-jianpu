@@ -177,17 +177,20 @@
         let thin-stroke = unit * 0.14
         let thick-stroke = unit * 0.828
         let clear-gap = unit * 0.504
-        let thick-x = width - thick-stroke / 2
-        let thin-x = thick-x - thick-stroke / 2 - clear-gap - thin-stroke / 2
+        let ordinary-bar-right-inset = unit / 2 - stroke / 2
         // Both the clear gap and the heavy stroke are 1.8 times the
-        // initial terminal bar. Anchor the outer edge of the heavy stroke to
-        // the slot's right edge so a justified row ends on the visible bar.
+        // initial terminal bar. Match visible right edges, including half of
+        // the ordinary barline's own stroke width; all extra width extends left.
         box(width: width)[
-          #place(top + left, dx: thin-x)[
-            #line(length: height, angle: 90deg, stroke: thin-stroke)
+          #place(top + right, dx: -(ordinary-bar-right-inset + thick-stroke + clear-gap))[
+            #box(width: thin-stroke, align(center)[
+              #line(length: height, angle: 90deg, stroke: thin-stroke)
+            ])
           ]
-          #place(top + left, dx: thick-x)[
-            #line(length: height, angle: 90deg, stroke: thick-stroke)
+          #place(top + right, dx: -ordinary-bar-right-inset)[
+            #box(width: thick-stroke, align(center)[
+              #line(length: height, angle: 90deg, stroke: thick-stroke)
+            ])
           ]
         ]
       } else {
@@ -209,8 +212,14 @@
   none
 }
 
-#let grace-target-shift(note-head-width) = {
-  note-head-width * 0.14
+#let grace-target-shift(note, center-distance, note-head-width, same-measure: true) = {
+  if not same-measure {
+    // A cross-measure grace group must stay on its own side of the barline.
+    note-head-width * 0.14
+  } else {
+    let visible-gap = note-head-width * 0.18
+    calc.max(center-distance - grace-group-width(note, note-head-width) / 2 - note-head-width / 2 - visible-gap, 0pt)
+  }
 }
 
 #let note-center-distance(measure, note-gaps, from, to) = {
@@ -262,7 +271,7 @@
       let target = grace-target-position(positions, index, item.note.direction)
       if target == none { none } else {
         let target-item = positions.at(target)
-        (distance: calc.abs(target-item.x - item.x), note: target-item.note)
+        (distance: calc.abs(target-item.x - item.x), note: target-item.note, same-measure: target-item.measure-index == item.measure-index)
       }
     }
   })
@@ -277,7 +286,13 @@
       let note = event.note
       if note.kind == "grace" {
         let target = grace-target-position(event-positions, event-index, note.direction)
-        let target-shift = if target == none { 0pt } else { grace-target-shift(note-head-width) }
+        let target-shift = if target == none {
+          0pt
+        } else {
+          let target-event = event-positions.at(target)
+          let center-distance = calc.abs(target-event.x - event.x)
+          grace-target-shift(note, center-distance, note-head-width, same-measure: target-event.measure-index == event.measure-index)
+        }
         let signed-shift = if note.direction == "previous" { -target-shift } else { target-shift }
         let member-width = grace-member-width(note-head-width)
         let member-gap = grace-member-gap(note-head-width)
