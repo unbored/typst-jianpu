@@ -360,6 +360,10 @@
   note-head-width * 0.28
 }
 
+#let grace-link-clearance(note-head-width) = {
+  note-head-width * 0.14
+}
+
 #let grace-octave-extra(note, note-head-width) = {
   let scale = 0.75
   let dot-radius = note-head-width * 0.075 * scale
@@ -380,7 +384,7 @@
 
 #let notation-link-item-upper-height(item, note-head-width, dot-radius, dot-gap) = {
   if item.grace {
-    grace-lift(note-head-width) + grace-octave-extra(item.grace-parent, note-head-width)
+    grace-lift(note-head-width) + grace-octave-extra(item.grace-parent, note-head-width) + grace-link-clearance(note-head-width)
   } else {
     notation-link-upper-height(item.note, note-head-width, dot-radius, dot-gap)
   }
@@ -552,6 +556,7 @@
           lift,
           grace-lift(note-head-width)
             + grace-octave-extra(note, note-head-width)
+            + grace-link-clearance(note-head-width)
             + grace-link-min-rise(note-head-width),
         )
       }

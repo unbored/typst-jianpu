@@ -160,7 +160,9 @@
         } else {
           calc.min(nominal-grace-bottom, main-center - grace-link-min-rise(note-head-width))
         }
-        let actual-grace-lift = grace-size.height - grace-bottom
+        // Keep the ornamental curve anchored at `grace-bottom`, but lift the
+        // glyph farther so lower octave dots cannot merge with the curve head.
+        let actual-grace-lift = grace-size.height - grace-bottom + grace-link-clearance(note-head-width)
         // Move the independent grace group slightly toward its target. The arc
         // starts at the shifted box center, so its horizontal span shrinks too.
         let endpoint-distance = calc.max(distance - target-size.width / 2 - target-shift, 0pt)
