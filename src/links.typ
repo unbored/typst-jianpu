@@ -2,6 +2,16 @@
 
 #import "glyphs.typ": *
 
+#let event-head-offset(note) = {
+  note.min-width / 2
+}
+
+#let event-width(note) = {
+  // Dot occupancy is a following spacer, not part of the box whose center
+  // defines the digit, octave dots, beams, and link anchors.
+  note.min-width + note.trailing-width
+}
+
 // Minimum-width wrapping remains measure-based: rows may break only between
 // measures, never between events inside a measure.
 #let measure-bar-slot-width(measure, bar-width) = if measure.final-bar { bar-width * 1.75 } else { bar-width }
@@ -10,7 +20,7 @@
   let width = 0pt
 
   for note in measure.notes {
-    width += note.min-width
+    width += event-width(note)
   }
 
   if measure.bar {
@@ -223,16 +233,16 @@
 }
 
 #let note-center-distance(measure, note-gaps, from, to) = {
-  let direction = if to > from { 1 } else { -1 }
-  let distance = measure.notes.at(from).min-width / 2
-  let index = from
-  while index != to {
-    let gap-index = if direction > 0 { index } else { index - 1 }
-    distance += note-gap-at(note-gaps, gap-index)
-    index += direction
-    distance += if index == to { measure.notes.at(index).min-width / 2 } else { measure.notes.at(index).min-width }
+  let positions = ()
+  let offset = 0pt
+  for (index, note) in measure.notes.enumerate() {
+    positions.push(offset + event-head-offset(note))
+    offset += event-width(note)
+    if index < measure.notes.len() - 1 {
+      offset += note-gap-at(note-gaps, index)
+    }
   }
-  distance
+  calc.abs(positions.at(to) - positions.at(from))
 }
 
 #let row-event-positions(row, extra-gap, min-measure-gap, bar-width, bar-gap) = {
@@ -244,8 +254,8 @@
     let note-gaps = note-gaps-from-extra(measure, extra-gap)
     let note-offset = row-offset + side-gaps.leading
     for (note-index, note) in measure.notes.enumerate() {
-      positions.push((note: note, x: note-offset + note.min-width / 2, measure-index: measure-index, note-index: note-index))
-      note-offset += note.min-width
+      positions.push((note: note, x: note-offset + event-head-offset(note), measure-index: measure-index, note-index: note-index))
+      note-offset += event-width(note)
       if note-index < measure.notes.len() - 1 { note-offset += note-gap-at(note-gaps, note-index) }
     }
     let measure-width = measure-min-width(measure, bar-width: bar-width, bar-gap: bar-gap) + extra-gap * calc.max(measure.notes.len() - 1, 0)

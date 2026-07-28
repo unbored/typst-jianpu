@@ -166,6 +166,13 @@
       ])
     }
 
+    if note.trailing-width > 0pt {
+      // This empty column belongs after the head. Keeping it independent is
+      // what prevents an augmentation dot from changing the preceding gap.
+      columns.push(note.trailing-width)
+      cells.push([])
+    }
+
     if index < measure-data.notes.len() - 1 {
       columns.push(note-gap-at(actual-note-gaps, index))
       cells.push([])
@@ -233,6 +240,11 @@
       ]
     ])
 
+    if note.trailing-width > 0pt {
+      columns.push(note.trailing-width)
+      cells.push([])
+    }
+
     if index < measure.notes.len() - 1 {
       columns.push(note-gap-at(actual-note-gaps, index))
       cells.push([])
@@ -254,7 +266,7 @@
   let actual-note-gaps = resolve-note-gaps(measure, note-gaps, extra-note-gap)
 
   for index in range(start, end + 1) {
-    width += measure.notes.at(index).min-width
+    width += event-width(measure.notes.at(index))
     if index < end {
       width += note-gap-at(actual-note-gaps, index)
     }
@@ -349,10 +361,14 @@
       // Draw one whole beam per continuous group at this beam level. Do not
       // split it per note/gap cell: that creates visible seams and y-offsets.
       let full-width = beam-group-width(measure, start, end, extra-note-gap: extra-note-gap, note-gaps: actual-note-gaps)
-      // Note heads are centered in their duration boxes, so beams are clipped
-      // to the centered note-head slots instead of the full duration boxes.
-      let first-inset = calc.max((measure.notes.at(start).min-width - beam-note-width) / 2, 0pt)
-      let last-inset = calc.max((measure.notes.at(end).min-width - beam-note-width) / 2, 0pt)
+      // The last event's post-dot spacer remains outside the beam endpoint.
+      let first-note = measure.notes.at(start)
+      let last-note = measure.notes.at(end)
+      let first-inset = calc.max(event-head-offset(first-note) - beam-note-width / 2, 0pt)
+      let last-inset = calc.max(
+        last-note.trailing-width + last-note.min-width - event-head-offset(last-note) - beam-note-width / 2,
+        0pt,
+      )
       let line-width = calc.max(full-width - first-inset - last-inset, beam-note-width)
 
       columns.push(first-inset)
@@ -364,7 +380,7 @@
 
       index = end + 1
     } else {
-      columns.push(note.min-width)
+      columns.push(event-width(note))
       cells.push([])
       index += 1
     }
@@ -420,6 +436,11 @@
         )
       ]
     ])
+
+    if note.trailing-width > 0pt {
+      columns.push(note.trailing-width)
+      cells.push([])
+    }
 
     if index < measure.notes.len() - 1 {
       columns.push(note-gap-at(actual-note-gaps, index))
@@ -665,6 +686,60 @@
       ]
     }
   ]
+}
+
+// Inline notation is a single intrinsic-width row: it neither wraps nor
+// distributes spare paragraph width, but otherwise reuses the full renderer.
+#let render-inline-track(
+  track,
+  min-measure-gap,
+  bar-width,
+  bar-gap,
+  beam-gap,
+  beam-note-width,
+  beam-thickness,
+  dot-radius,
+  dot-gap,
+) = {
+  if track.measures.len() == 0 {
+    []
+  } else {
+    let row = track.measures
+    let width = row-min-width(row, min-measure-gap: min-measure-gap, bar-width: bar-width, bar-gap: bar-gap)
+    let baseline-shift = 0pt
+    for measure in row {
+      let measure-depth = 0pt
+      for level in range(1, 4) {
+        if has-beam-level(measure, level) {
+          // A horizontal Typst line measures 0pt high; only the stack gap
+          // advances layout below the main-note baseline.
+          measure-depth += beam-gap
+        }
+      }
+      if max-octave-down(measure) > 0 {
+        measure-depth += beam-gap + octave-dots-height(max-octave-down(measure), dot-radius: dot-radius, dot-gap: dot-gap)
+      }
+      baseline-shift = calc.max(baseline-shift, measure-depth)
+    }
+
+    // The row box normally aligns its bottom edge with surrounding text. Move
+    // that baseline upward by every layer below the main digit baseline.
+    box(width: width, baseline: baseline-shift)[
+      #render-row(
+        row,
+        width,
+        min-measure-gap: min-measure-gap,
+        bar-width: bar-width,
+        bar-gap: bar-gap,
+        beam-gap: beam-gap,
+        beam-note-width: beam-note-width,
+        beam-thickness: beam-thickness,
+        dot-radius: dot-radius,
+        dot-gap: dot-gap,
+        justify: false,
+      )
+    ]
+  }
 }
 
 // Wrapping is track-local for now. Future multi-voice work should move system
