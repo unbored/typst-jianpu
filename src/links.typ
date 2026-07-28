@@ -167,9 +167,9 @@
 }
 
 #let measure-bar-line(width, height, top-offset, stroke, final: false) = {
-  // The bar line reaches the row's highest chord note-head, while its lower
-  // end stays at the ordinary note-head height. Octave dots and beam lines do
-  // not lengthen it. It is an overlay so it cannot alter layout.
+  // The bar line covers only the main-note row plus fixed upper/lower
+  // extensions. Chord members, octave dots, grace notes, and beams do not
+  // lengthen it. It is an overlay so it cannot alter layout.
   box(width: width, height: 0pt)[
     #place(top, dy: -top-offset)[
       #if final {

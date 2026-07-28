@@ -31,24 +31,6 @@
   height
 }
 
-#let chord-digit-height(note, note-head-width) = {
-  if note.kind == "chord" {
-    chord-member-offset(note, note.members.len() - 1, note-head-width)
-  } else {
-    0pt
-  }
-}
-
-#let row-max-chord-digit-height(row, note-head-width) = {
-  let height = 0pt
-  for measure in row {
-    for note in measure.notes {
-      height = calc.max(height, chord-digit-height(note, note-head-width))
-    }
-  }
-  height
-}
-
 #let has-beam-level(measure, level) = {
   for note in measure.notes {
     if note.beams >= level {
@@ -609,9 +591,11 @@
   }
   let link-upper-reserve = if notation-links.len() > 0 { max-link-obstacle-height + max-link-arc-height + endpoint-clearance + beam-note-width * 0.14 } else { 0pt }
   let upper-dot-height = calc.max(notation-upper-height, link-upper-reserve, grace-upper-reserve)
-  let bar-lower-extension = beam-note-width * 0.30
-  let bar-upper-extension = bar-lower-extension * 1.5
-  let bar-top-offset = row-max-chord-digit-height(row, beam-note-width) + bar-upper-extension
+  let bar-upper-extension = beam-note-width * 0.45
+  let bar-lower-extension = bar-upper-extension
+  // Barlines describe the main-note row only. Chord members, octave dots,
+  // grace notes, and beam layers must not make individual barlines taller.
+  let bar-top-offset = bar-upper-extension
   let bar-note-height = beam-note-width
   let bar-height = bar-top-offset + bar-note-height + bar-lower-extension
 
