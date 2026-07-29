@@ -88,6 +88,20 @@
   let cells = ()
   let actual-note-gaps = resolve-note-gaps(measure-data, note-gaps, extra-note-gap)
 
+  if measure-data.repeat-start-visible {
+    let repeat-width = repeat-bar-slot-width(bar-width)
+    columns.push(repeat-width)
+    cells.push(measure-bar-line(
+      repeat-width,
+      bar-height,
+      bar-top-offset,
+      bar-width * 0.22,
+      repeat-start: true,
+    ))
+    columns.push(bar-gap)
+    cells.push([])
+  }
+
   if leading-gap > 0pt {
     columns.push(leading-gap)
     cells.push([])
@@ -190,6 +204,9 @@
       bar-top-offset,
       bar-width * 0.22,
       final: measure-data.final-bar,
+      repeat-end: measure-data.repeat-end,
+      repeat-both: measure-data.repeat-both,
+      repeat-count: if measure-data.volta == none { measure-data.repeat-count } else { 2 },
     ))
   }
 
@@ -219,6 +236,11 @@
     slot-height
   }
   let actual-note-gaps = resolve-note-gaps(measure, note-gaps, extra-note-gap)
+
+  if measure.repeat-start-visible {
+    columns.push(measure-start-prefix-width(measure, bar-width, bar-gap))
+    cells.push([])
+  }
 
   if leading-gap > 0pt {
     columns.push(leading-gap)
@@ -340,6 +362,11 @@
   let actual-note-gaps = resolve-note-gaps(measure, note-gaps, extra-note-gap)
   let quarter-groups = beam-quarter-groups(measure)
 
+  if measure.repeat-start-visible {
+    columns.push(measure-start-prefix-width(measure, bar-width, bar-gap))
+    cells.push([])
+  }
+
   if leading-gap > 0pt {
     columns.push(leading-gap)
     cells.push([])
@@ -417,6 +444,11 @@
   let columns = ()
   let cells = ()
   let actual-note-gaps = resolve-note-gaps(measure, note-gaps, extra-note-gap)
+
+  if measure.repeat-start-visible {
+    columns.push(measure-start-prefix-width(measure, bar-width, bar-gap))
+    cells.push([])
+  }
 
   if leading-gap > 0pt {
     columns.push(leading-gap)
@@ -552,6 +584,113 @@
   ]
 }
 
+#let row-volta-fragments(row, spans, bar-width, bar-stroke) = {
+  let fragments = ()
+  let index = 0
+  while index < row.len() {
+    let measure = row.at(index)
+    if measure.volta == none {
+      index += 1
+    } else {
+      let start = index
+      let end = index
+      while end + 1 < row.len() and row.at(end + 1).volta == measure.volta {
+        end += 1
+      }
+      let last = row.at(end)
+      let starts = measure.volta-start
+      let ends = last.volta-end
+      let previous = if start > 0 { row.at(start - 1) } else { none }
+      let previous-end = if start > 0 { spans.at(start - 1).end } else { 0pt }
+      let shared-next-ending = ends and end + 1 < row.len() and row.at(end + 1).volta-start
+      let start-x = if starts {
+        volta-start-boundary-x(previous, previous-end, spans.at(start).start, bar-width, bar-stroke)
+      } else {
+        spans.at(start).start
+      }
+      let end-x = if ends {
+        volta-end-boundary-x(
+          last,
+          spans.at(end).end,
+          bar-width,
+          bar-stroke,
+          shared-next-ending: shared-next-ending,
+        )
+      } else {
+        spans.at(end).end
+      }
+      fragments.push((
+        x: start-x,
+        width: calc.max(end-x - start-x, bar-width),
+        start-index: start,
+        end-index: end,
+        label: measure.volta,
+        starts: starts,
+        ends: ends,
+        // Earlier endings close at their repeat bar. The final ending remains
+        // open unless it also reaches the track's terminal bar.
+        close: last.volta-end and (not last.volta-last or last.final-bar),
+      ))
+      index = end + 1
+    }
+  }
+  fragments
+}
+
+#let format-volta-label(source) = {
+  let numbers = ()
+  for part in source.replace("–", "-").split(",") {
+    let bounds = part.split("-")
+    if bounds.len() == 2 {
+      let first = int(bounds.at(0))
+      let last = int(bounds.at(1))
+      assert(first <= last, message: "alternative ending ranges must be ascending")
+      numbers += range(first, last + 1)
+    } else {
+      numbers.push(int(part))
+    }
+  }
+
+  let pieces = ()
+  let start = 0
+  while start < numbers.len() {
+    let end = start
+    while end + 1 < numbers.len() and numbers.at(end + 1) == numbers.at(end) + 1 {
+      end += 1
+    }
+    // Two adjacent passes remain explicit (`1, 2`); only runs of three or
+    // more are compacted into a typographic range (`4–6`).
+    if end - start + 1 >= 3 {
+      pieces.push(str(numbers.at(start)) + ".–" + str(numbers.at(end)) + ".")
+    } else {
+      for index in range(start, end + 1) { pieces.push(str(numbers.at(index)) + ".") }
+    }
+    start = end + 1
+  }
+  pieces.join(" ")
+}
+
+#let render-volta-fragment(fragment, note-head-width, thickness) = context {
+  let label = format-volta-label(fragment.label)
+  let label-offset-y = note-head-width * 0.12
+  let label-body = text(font: "Libertinus Serif", size: note-head-width * 1.05, weight: "regular")[#label]
+  // Derive the hook from the actual label box instead of estimating it from
+  // the note size. This also covers wider labels such as `1, 2.` consistently.
+  let hook = label-offset-y + measure(label-body).height
+  box(width: fragment.width, height: 0pt)[
+    #line(length: 100%, stroke: thickness)
+    #if fragment.starts {
+      place(top + left)[#line(length: hook, angle: 90deg, stroke: thickness)]
+      place(top + left, dx: note-head-width * 0.18, dy: label-offset-y)[
+        #label-body
+      ]
+    }
+    #if fragment.close {
+      place(top + right)[#line(length: hook, angle: 90deg, stroke: thickness)]
+    }
+  ]
+}
+
 // Distribute remaining width, reserve shared vertical extents, then overlay
 // row-level slur/tie fragments above independently rendered measures.
 #let render-row(
@@ -570,7 +709,10 @@
 ) = {
   let min-width = row-min-width(row, min-measure-gap: min-measure-gap, bar-width: bar-width, bar-gap: bar-gap)
   let inner-gap-count = calc.max(row-note-count(row) - row.len(), 0)
-  let measure-gap-count = calc.max(row.len() - 1, 0)
+  let measure-gap-count = 0
+  for (index, measure) in row.enumerate() {
+    if index > 0 and not measure.repeat-start { measure-gap-count += 1 }
+  }
   let gap-count = inner-gap-count + measure-gap-count
   // Row justification first allocates extra width to each measure and to each
   // measure boundary. Each measure then converts its allocated width into
@@ -585,6 +727,8 @@
   let grace-targets = row-grace-targets(row, extra-gap, min-measure-gap, bar-width, bar-gap)
   let note-positions = row-link-positions(row, extra-gap, min-measure-gap, bar-width, bar-gap, beam-note-width)
   let notation-links = if link-fragments == none { notation-links-from-items(note-positions) } else { link-fragments }
+  let measure-spans = row-measure-spans(row, extra-gap, min-measure-gap, bar-width, bar-gap)
+  let volta-fragments = row-volta-fragments(row, measure-spans, bar-width, bar-width * 0.22)
   let columns = ()
   let cells = ()
   let notation-upper-height = calc.max(
@@ -611,7 +755,14 @@
     )
   }
   let link-upper-reserve = if notation-links.len() > 0 { max-link-obstacle-height + max-link-arc-height + endpoint-clearance + beam-note-width * 0.14 } else { 0pt }
-  let upper-dot-height = calc.max(notation-upper-height, link-upper-reserve, grace-upper-reserve)
+  let has-repeat-count = false
+  for measure in row {
+    if measure.repeat-end and measure.volta == none and measure.repeat-count > 2 {
+      has-repeat-count = true
+    }
+  }
+  let structure-upper-reserve = if volta-fragments.len() > 0 or has-repeat-count { beam-note-width * 1.18 } else { 0pt }
+  let upper-dot-height = calc.max(notation-upper-height, link-upper-reserve, grace-upper-reserve) + structure-upper-reserve
   let bar-upper-extension = beam-note-width * 0.45
   let bar-lower-extension = bar-upper-extension
   // Barlines describe the main-note row only. Chord members, octave dots,
@@ -622,7 +773,7 @@
 
   let event-offset = 0
   for (index, measure) in row.enumerate() {
-    let leading-gap = if index == 0 {
+    let leading-gap = if index == 0 or measure.repeat-start {
       0pt
     } else {
       min-measure-gap + extra-gap
@@ -683,6 +834,21 @@
         } else {
           notation-through-arc(width, beam-note-width * 0.16, beam-note-width * 0.08)
         }
+      ]
+    }
+    #for fragment in volta-fragments {
+      let covered = row.slice(fragment.start-index, fragment.end-index + 1)
+      let local-upper-obstacle = calc.max(
+        octave-dots-height(row-max-octave-up(covered), dot-radius: dot-radius, dot-gap: dot-gap),
+        row-max-chord-upper-height(covered, beam-note-width),
+        row-grace-lift(covered, beam-note-width),
+      )
+      // Keep the row baseline shared, but lower each volta independently when
+      // its own measures contain no upper obstacle. The fixed reserve covers
+      // the measured label hook and leaves a gap above the barline.
+      let volta-y = upper-dot-height - local-upper-obstacle - beam-note-width * 1.50
+      place(top + left, dx: fragment.x, dy: volta-y)[
+        #render-volta-fragment(fragment, beam-note-width, beam-thickness)
       ]
     }
   ]

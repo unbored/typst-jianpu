@@ -128,22 +128,139 @@
   } else { parse-note(token, quarter-width, eighth-width, short-width, compact: compact) }
 }
 
+#let plain-measure(notes, bar) = (notes: notes, bar: bar, final-bar: false)
+
 #let parse-measures(tokens, quarter-width, eighth-width, short-width, sort-chords: true, final-bar: true, compact: false) = {
   let measures = ()
   let current = ()
-  for token in tokens {
-    if token == "|" { measures.push((notes: current, bar: true, final-bar: false)); current = () }
-    else { current.push(parse-event(token, quarter-width, eighth-width, short-width, sort-chords: sort-chords, compact: compact)) }
-  }
-  if current.len() > 0 { measures.push((notes: current, bar: false, final-bar: false)) }
+  let repeats = ()
+  let repeat = none
+  let alternative = none
 
-  if final-bar and measures.len() > 0 {
-    // The end bar belongs to the track rather than to the source's final `|`:
-    // both terminated and unterminated raw blocks therefore render identically.
-    let last = measures.pop()
-    measures.push(last + (bar: true, final-bar: true))
+  for token in tokens {
+    let repeat-open = token.starts-with("r") and token.ends-with("{")
+    let alternative-open = token.starts-with("a") and token.ends-with("{")
+
+    if token == "|" {
+      if current.len() > 0 {
+        measures.push(plain-measure(current, true))
+        current = ()
+      }
+      // `r{...}` and `aN{...}` already create barline-aligned boundaries.
+      // A neighboring explicit `|` is therefore accepted as redundant syntax
+      // instead of producing an empty measure after a closing brace.
+    } else if repeat-open {
+      assert(repeat == none, message: "nested repeat blocks are not supported yet")
+      if current.len() > 0 {
+        measures.push(plain-measure(current, false))
+        current = ()
+      } else if measures.len() > 0 and measures.at(measures.len() - 1).bar {
+        // `rN{` supplies the boundary itself. Remove a preceding ordinary bar
+        // so a mid-track repeat does not render two adjacent barlines.
+        let preceding = measures.pop()
+        measures.push(preceding + (bar: false))
+      }
+      let count-source = token.slice(1, token.len() - 1)
+      let count = if count-source == "" { 2 } else { int(count-source) }
+      assert(count >= 2, message: "repeat count must be at least 2")
+      repeat = (count: count, start: measures.len(), alternatives: ())
+    } else if alternative-open {
+      assert(repeat != none and alternative == none, message: "an alternative ending must be inside a repeat block")
+      if current.len() > 0 {
+        measures.push(plain-measure(current, true))
+        current = ()
+      }
+      alternative = (label: token.slice(1, token.len() - 1), start: measures.len())
+    } else if token == "}" {
+      if alternative != none {
+        if current.len() > 0 {
+          measures.push(plain-measure(current, true))
+          current = ()
+        }
+        assert(measures.len() > alternative.start, message: "an alternative ending cannot be empty")
+        let finished = alternative + (end: measures.len() - 1)
+        repeat = repeat + (alternatives: repeat.alternatives + (finished,))
+        alternative = none
+      } else {
+        assert(repeat != none, message: "unexpected structural closing brace")
+        if current.len() > 0 {
+          measures.push(plain-measure(current, true))
+          current = ()
+        }
+        assert(measures.len() > repeat.start, message: "a repeat block cannot be empty")
+        repeats.push(repeat + (end: measures.len() - 1))
+        repeat = none
+      }
+    } else {
+      current.push(parse-event(token, quarter-width, eighth-width, short-width, sort-chords: sort-chords, compact: compact))
+    }
   }
-  measures
+  assert(repeat == none and alternative == none, message: "unclosed repeat or alternative block")
+  if current.len() > 0 { measures.push(plain-measure(current, false)) }
+
+  let enriched = ()
+  for (index, measure) in measures.enumerate() {
+    let repeat-start = false
+    let repeat-end = false
+    let repeat-count = 2
+    let volta = none
+    let volta-start = false
+    let volta-end = false
+    let volta-last = false
+
+    for repetition in repeats {
+      if index == repetition.start { repeat-start = true }
+      if repetition.alternatives.len() == 0 {
+        if index == repetition.end {
+          repeat-end = true
+          repeat-count = repetition.count
+        }
+      } else {
+        for (alternative-index, ending) in repetition.alternatives.enumerate() {
+          if index >= ending.start and index <= ending.end {
+            volta = ending.label
+            volta-start = index == ending.start
+            volta-end = index == ending.end
+            volta-last = alternative-index == repetition.alternatives.len() - 1
+            if volta-end and not volta-last {
+              repeat-end = true
+              repeat-count = repetition.count
+            }
+          }
+        }
+      }
+    }
+
+    let is-last = index == measures.len() - 1
+    // An end-repeat bar replaces the automatic terminal bar. The final
+    // alternative instead receives the normal terminal bar when it ends the
+    // track, which also lets its volta bracket close naturally.
+    let actual-final = final-bar and is-last and not repeat-end
+    enriched.push(measure + (
+      bar: measure.bar or repeat-end or actual-final,
+      final-bar: actual-final,
+      repeat-start: repeat-start,
+      repeat-end: repeat-end,
+      repeat-count: repeat-count,
+      volta: volta,
+      volta-start: volta-start,
+      volta-end: volta-end,
+      volta-last: volta-last,
+    ))
+  }
+  let combined = ()
+  for (index, measure) in enriched.enumerate() {
+    let repeat-both = measure.repeat-end and index + 1 < enriched.len() and enriched.at(index + 1).repeat-start
+    // A repeat beginning with the whole track needs no opening sign: the end
+    // repeat naturally sends playback back to the beginning. Later starts
+    // remain visible unless they share a combined boundary with a prior end.
+    let start-visible = measure.repeat-start and index > 0 and not enriched.at(index - 1).repeat-end
+    combined.push(measure + (
+      repeat-both: repeat-both,
+      repeat-start-visible: start-visible,
+    ))
+  }
+  combined
 }
 
 #let group-text(group) = {
@@ -159,7 +276,15 @@
 }
 
 #let score-tokens(score) = {
-  let raw-tokens = group-text(score).replace(regex("\\r?\\n"), " ").replace("|", " | ").split(" ").filter(token => token != "")
+  let raw-tokens = group-text(score)
+    .replace(regex("\\r?\\n"), " ")
+    .replace("|", " | ")
+    // Opening braces remain attached to `rN`/`aN`; closing braces are
+    // structural tokens. Square-bracket note groups are left untouched.
+    .replace("{", "{ ")
+    .replace("}", " } ")
+    .split(" ")
+    .filter(token => token != "")
   let tokens = ()
   let compound = none
   for token in raw-tokens {

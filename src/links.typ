@@ -14,10 +14,96 @@
 
 // Minimum-width wrapping remains measure-based: rows may break only between
 // measures, never between events inside a measure.
-#let measure-bar-slot-width(measure, bar-width) = if measure.final-bar { bar-width * 1.75 } else { bar-width }
+#let terminal-bar-style(unit) = (
+  thin-stroke: unit * 0.14,
+  thick-stroke: unit * 0.828,
+  clear-gap: unit * 0.504,
+)
+
+#let repeat-bar-slot-width(bar-width) = bar-width * 3.2
+#let double-repeat-bar-slot-width(bar-width) = bar-width * 4.6
+#let measure-start-prefix-width(measure, bar-width, bar-gap) = if measure.repeat-start-visible {
+  repeat-bar-slot-width(bar-width) + bar-gap
+} else {
+  0pt
+}
+#let measure-bar-slot-width(measure, bar-width) = {
+  if measure.repeat-both { double-repeat-bar-slot-width(bar-width) }
+  else if measure.repeat-end { repeat-bar-slot-width(bar-width) }
+  else if measure.final-bar { bar-width * 1.75 }
+  else { bar-width }
+}
+
+#let repeat-end-anchor-offset(width, bar-width, stroke, combined: false) = {
+  if combined {
+    let unit = width / 4.6
+    let style = terminal-bar-style(unit)
+    // A shared repeat boundary has two heavy strokes. The ending on the left
+    // closes on the center of the left stroke.
+    width / 2 - style.clear-gap / 2 - style.thick-stroke / 2
+  } else {
+    let unit = width / 3.2
+    let style = terminal-bar-style(unit)
+    let ordinary-edge-inset = unit / 2 - stroke / 2
+    let thick-center = width - ordinary-edge-inset - style.thick-stroke / 2
+    thick-center - style.thick-stroke / 2 - style.clear-gap - style.thin-stroke / 2
+  }
+}
+
+#let repeat-next-start-anchor-offset(width, bar-width, stroke, combined: false) = {
+  if combined {
+    let unit = width / 4.6
+    let style = terminal-bar-style(unit)
+    // The following ending starts outside the right heavy stroke.
+    width / 2 + style.clear-gap / 2 + style.thick-stroke
+  } else {
+    let unit = width / 3.2
+    let thick-stroke = terminal-bar-style(unit).thick-stroke
+    let ordinary-edge-inset = unit / 2 - stroke / 2
+    width - ordinary-edge-inset
+  }
+}
+
+#let volta-end-boundary-x(measure, span-end, bar-width, stroke, shared-next-ending: false) = {
+  let slot-width = measure-bar-slot-width(measure, bar-width)
+  let slot-start = span-end - slot-width
+  if measure.repeat-end {
+    if shared-next-ending {
+      // Only an ending that starts beside this one needs the inner anchor.
+      slot-start + repeat-end-anchor-offset(slot-width, bar-width, stroke, combined: measure.repeat-both)
+    } else {
+      // At a system break the following ending is elsewhere, so close at the
+      // visible right edge of the heavy repeat stroke.
+      slot-start + repeat-next-start-anchor-offset(slot-width, bar-width, stroke, combined: measure.repeat-both)
+    }
+  } else if measure.final-bar {
+    let unit = slot-width / 1.75
+    let ordinary-edge-inset = unit / 2 - stroke / 2
+    // A terminal volta closes outside the heavy final stroke, not at the
+    // widened final-bar slot center or on its preceding thin stroke.
+    slot-start + slot-width - ordinary-edge-inset
+  } else {
+    slot-start + slot-width / 2
+  }
+}
+
+#let volta-start-boundary-x(previous, previous-span-end, fallback, bar-width, stroke) = {
+  if previous == none {
+    fallback
+  } else {
+    let slot-width = measure-bar-slot-width(previous, bar-width)
+    let slot-start = previous-span-end - slot-width
+    if previous.repeat-end {
+      slot-start + repeat-next-start-anchor-offset(slot-width, bar-width, stroke, combined: previous.repeat-both)
+    } else {
+      slot-start + slot-width / 2
+    }
+  }
+}
 
 #let measure-min-width(measure, bar-width: 5pt, bar-gap: 6pt) = {
   let width = 0pt
+  width += measure-start-prefix-width(measure, bar-width, bar-gap)
 
   for note in measure.notes {
     width += event-width(note)
@@ -36,17 +122,47 @@
   for (index, measure) in row.enumerate() {
     width += measure-min-width(measure, bar-width: bar-width, bar-gap: bar-gap)
     if index < row.len() - 1 {
-      width += min-measure-gap
+      width += if row.at(index + 1).repeat-start { 0pt } else { min-measure-gap }
     }
   }
 
   width
 }
 
-#let grace-crosses-measure-boundary(left, right) = {
+#let row-measure-spans(row, extra-gap, min-measure-gap, bar-width, bar-gap) = {
+  let spans = ()
+  let offset = 0pt
+  for (index, measure) in row.enumerate() {
+    let leading-gap = if index == 0 or measure.repeat-start { 0pt } else { min-measure-gap + extra-gap }
+    let measure-width = measure-min-width(measure, bar-width: bar-width, bar-gap: bar-gap) + extra-gap * calc.max(measure.notes.len() - 1, 0)
+    let start = offset + leading-gap
+    spans.push((start: start, end: start + measure-width))
+    offset += leading-gap + measure-width
+  }
+  spans
+}
+
+#let protected-measure-boundary(left, right) = {
   let left-connects = left.notes.len() > 0 and left.notes.at(left.notes.len() - 1).kind == "grace" and left.notes.at(left.notes.len() - 1).direction == "next"
   let right-connects = right.notes.len() > 0 and right.notes.at(0).kind == "grace" and right.notes.at(0).direction == "previous"
+  // Grace groups may cross a barline and must remain together. Repeat starts,
+  // however, are valid system breaks and are split into end/start signs below.
   left-connects or right-connects
+}
+
+#let split-row-repeat-boundary(left, right) = {
+  if left.len() == 0 or right.len() == 0 {
+    return (left: left, right: right)
+  }
+  let last = left.at(left.len() - 1)
+  let first = right.at(0)
+  if last.repeat-both and first.repeat-start {
+    // A same-line `:‖‖:` becomes a complete backward repeat at the previous
+    // system end and a complete forward repeat at the next system start.
+    left = left.slice(0, left.len() - 1) + (last + (repeat-both: false),)
+    right = (first + (repeat-start-visible: true),) + right.slice(1)
+  }
+  (left: left, right: right)
 }
 
 #let wrap-measures(
@@ -82,17 +198,30 @@
     // Only break between measures. If the candidate row would exceed the
     // available line width, commit the previous row first.
     if current.len() > 0 and candidate-width > available-width {
-      let protected-boundary = grace-crosses-measure-boundary(current.at(current.len() - 1), measure)
+      let protected-boundary = protected-measure-boundary(current.at(current.len() - 1), measure)
       if protected-boundary and current.len() > 1 {
-        // Carry the preceding measure with the grace group so its target stays
-        // on the same system without allowing a break through the relationship.
-        rows.push(current.slice(0, current.len() - 1))
-        current = (current.at(current.len() - 1), measure)
+        // Carry the whole grace-connected chain instead of splitting a grace
+        // group from the main note in the adjacent measure.
+        let carry-start = current.len() - 1
+        while carry-start > 0 and protected-measure-boundary(current.at(carry-start - 1), current.at(carry-start)) {
+          carry-start -= 1
+        }
+        if carry-start > 0 {
+          let split = split-row-repeat-boundary(
+            current.slice(0, carry-start),
+            current.slice(carry-start) + (measure,),
+          )
+          rows.push(split.left)
+          current = split.right
+        } else {
+          current = candidate
+        }
       } else if protected-boundary {
         current = candidate
       } else {
-        rows.push(current)
-        current = (measure,)
+        let split = split-row-repeat-boundary(current, (measure,))
+        rows.push(split.left)
+        current = split.right
       }
     } else {
       current = candidate
@@ -176,30 +305,110 @@
   }
 }
 
-#let measure-bar-line(width, height, top-offset, stroke, final: false) = {
+#let repeat-bar-dots(x, height, radius) = {
+  for y in (height / 2 - radius * 2.3, height / 2 + radius * 2.3) {
+    place(top + left, dx: x - radius, dy: y - radius)[
+      #circle(radius: radius, fill: black)
+    ]
+  }
+}
+
+#let repeat-count-label(count, unit) = context {
+  let body = text(font: "Libertinus Serif", size: unit * 2.4, weight: "regular")[×#count]
+  // Pin the label's measured bottom above the bar instead of stacking two
+  // unrelated top offsets, which previously left the small label too remote.
+  move(dy: -measure(body).height - unit * 0.45, body)
+}
+
+#let measure-bar-line(
+  width,
+  height,
+  top-offset,
+  stroke,
+  final: false,
+  repeat-start: false,
+  repeat-end: false,
+  repeat-both: false,
+  repeat-count: 2,
+) = {
   // The bar line covers only the main-note row plus fixed upper/lower
   // extensions. Chord members, octave dots, grace notes, and beams do not
   // lengthen it. It is an overlay so it cannot alter layout.
   box(width: width, height: 0pt)[
     #place(top, dy: -top-offset)[
-      #if final {
+      #if repeat-both {
+        let unit = width / 4.6
+        let style = terminal-bar-style(unit)
+        let dot-gap = unit * 0.38
+        // `bar-width` is 0.3em, so 0.30 unit matches the 0.09em
+        // augmentation-dot radius used by ordinary note heads.
+        let dot-radius = unit * 0.30
+        let left-thick = width / 2 - style.clear-gap / 2 - style.thick-stroke / 2
+        let right-thick = width / 2 + style.clear-gap / 2 + style.thick-stroke / 2
+        let dot-offset = style.thick-stroke / 2 + dot-gap + dot-radius
+        box(width: width)[
+          #place(top + left, dx: left-thick)[#line(length: height, angle: 90deg, stroke: style.thick-stroke)]
+          #place(top + left, dx: right-thick)[#line(length: height, angle: 90deg, stroke: style.thick-stroke)]
+          #repeat-bar-dots(left-thick - dot-offset, height, dot-radius)
+          #repeat-bar-dots(right-thick + dot-offset, height, dot-radius)
+          #if repeat-count > 2 {
+            place(top + center)[
+              #repeat-count-label(repeat-count, unit)
+            ]
+          }
+        ]
+      } else if repeat-start or repeat-end {
+        let unit = width / 3.2
+        let style = terminal-bar-style(unit)
+        let dot-gap = unit * 0.38
+        let dot-radius = unit * 0.30
+        let ordinary-edge-inset = unit / 2 - stroke / 2
+        let thick-center = if repeat-end {
+          width - ordinary-edge-inset - style.thick-stroke / 2
+        } else {
+          ordinary-edge-inset + style.thick-stroke / 2
+        }
+        let thin-center = if repeat-end {
+          thick-center - style.thick-stroke / 2 - style.clear-gap - style.thin-stroke / 2
+        } else {
+          thick-center + style.thick-stroke / 2 + style.clear-gap + style.thin-stroke / 2
+        }
+        let dot-center = if repeat-end {
+          thin-center - style.thin-stroke / 2 - dot-gap - dot-radius
+        } else {
+          thin-center + style.thin-stroke / 2 + dot-gap + dot-radius
+        }
+
+        box(width: width)[
+          #place(top + left, dx: thick-center)[
+            #line(length: height, angle: 90deg, stroke: style.thick-stroke)
+          ]
+          #place(top + left, dx: thin-center)[
+            #line(length: height, angle: 90deg, stroke: style.thin-stroke)
+          ]
+          #repeat-bar-dots(dot-center, height, dot-radius)
+          #if repeat-end and repeat-count > 2 {
+            place(top + center)[
+              #repeat-count-label(repeat-count, unit)
+            ]
+          }
+        ]
+      } else if final {
         let unit = width / 1.75
-        let thin-stroke = unit * 0.14
-        let thick-stroke = unit * 0.828
-        let clear-gap = unit * 0.504
+        let style = terminal-bar-style(unit)
         let ordinary-bar-right-inset = unit / 2 - stroke / 2
         // Both the clear gap and the heavy stroke are 1.8 times the
         // initial terminal bar. Match visible right edges, including half of
         // the ordinary barline's own stroke width; all extra width extends left.
         box(width: width)[
-          #place(top + right, dx: -(ordinary-bar-right-inset + thick-stroke + clear-gap))[
-            #box(width: thin-stroke, align(center)[
-              #line(length: height, angle: 90deg, stroke: thin-stroke)
+          #place(top + right, dx: -(ordinary-bar-right-inset + style.thick-stroke + style.clear-gap))[
+            #box(width: style.thin-stroke, align(center)[
+              #line(length: height, angle: 90deg, stroke: style.thin-stroke)
             ])
           ]
           #place(top + right, dx: -ordinary-bar-right-inset)[
-            #box(width: thick-stroke, align(center)[
-              #line(length: height, angle: 90deg, stroke: thick-stroke)
+            #box(width: style.thick-stroke, align(center)[
+              #line(length: height, angle: 90deg, stroke: style.thick-stroke)
             ])
           ]
         ]
@@ -249,10 +458,10 @@
   let positions = ()
   let row-offset = 0pt
   for (measure-index, measure) in row.enumerate() {
-    let leading-gap = if measure-index == 0 { 0pt } else { min-measure-gap + extra-gap }
+    let leading-gap = if measure-index == 0 or measure.repeat-start { 0pt } else { min-measure-gap + extra-gap }
     let side-gaps = measure-side-gaps(leading-gap, bar-gap, measure.bar)
     let note-gaps = note-gaps-from-extra(measure, extra-gap)
-    let note-offset = row-offset + side-gaps.leading
+    let note-offset = row-offset + measure-start-prefix-width(measure, bar-width, bar-gap) + side-gaps.leading
     for (note-index, note) in measure.notes.enumerate() {
       positions.push((note: note, x: note-offset + event-head-offset(note), measure-index: measure-index, note-index: note-index))
       note-offset += event-width(note)
