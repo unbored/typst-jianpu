@@ -1,6 +1,17 @@
-#import "../jianpu.typ": jianpu
+#import "../jianpu.typ": jianpu, jianpu-title
 
 #set text(font: "Noto Serif CJK KR")
+
+#jianpu-title(
+  [曲目标题],
+  subtitle: [曲目副标题],
+  key: "1=G",
+  meter: "4/4",
+  authors: (
+    (name: [张三], role: [作词]),
+    (name: [李四], role: [作曲]),
+  ),
+)
 
 = 换行测试
 

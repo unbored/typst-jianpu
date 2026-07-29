@@ -2,7 +2,7 @@
 
 一个正在开发中的 Typst 简谱排版插件。
 
-内部实现按职责拆分：`parser.typ` 解析输入，`geometry.typ` 提供全局尺寸，`glyphs.typ` 绘制局部记谱图元，`links.typ` 处理横向坐标与连线，`layout.typ` 负责小节、行和 track 渲染。`jianpu.typ` 只保留公开入口。
+内部实现按职责拆分：`parser.typ` 解析输入，`geometry.typ` 提供全局尺寸，`glyphs.typ` 绘制局部记谱图元，`links.typ` 处理横向坐标与连线，`layout.typ` 负责小节、行和 track 渲染，`title.typ` 提供曲谱标题布局。`jianpu.typ` 只保留公开入口。
 
 ## 为什么
 目前并没有一个完美的开源简谱编排软件。最接近理想状态的应该是jianpu-ly，我也有部分参与。众所周知，lilypond是一个优秀的乐谱编排工具，五线谱非常精美，可以跟专业软件掰手腕；然而天然不支持简谱，其排版底层逻辑也似乎天然与简谱不太兼容；也众所不周知，lilypond扩展所用的语言为Scheme，一个看一眼就劝退的语言，彻底打消了我写lilypond扩展的想法。jianpu-ly基本没有用到lilypond的扩展，而是用python套了一层壳，以及一系列奇技淫巧达成了排版简谱的目的，不得不说也算是成功；但这种绕弯实现目的的方案，意味着各种微调和版本不兼容，目前jianpu-ly已经面临如此困境。
@@ -18,12 +18,29 @@
 ## 使用方式
 
 ```typst
-#import "jianpu.typ": jianpu, jianpu-inline
+#import "jianpu.typ": jianpu, jianpu-inline, jianpu-title
 
 #jianpu(```melody
 1 2 3 4 | 5/ 6/ 7/ 1/ |
 ```)
 ```
+
+曲谱标题可以包含居中的标题、副标题，以及左右两块信息区：
+
+```typst
+#jianpu-title(
+  [曲目标题],
+  subtitle: [曲目副标题],
+  key: "1=G",
+  meter: "4/4",
+  authors: (
+    (name: [张三], role: [作词]),
+    (name: [李四], role: [作曲]),
+  ),
+)
+```
+
+`key`、`meter` 分别表示调式和节拍，均使用固定格式的字符串并以粗体排印。调式写作 `key: "1=G"`，其中数字使用 Arial Bold，等号和调名字母使用粗体衬线字体；节拍使用 `"分子/分母"` 格式，例如 `meter: "2/4"`，函数内部会将其排成完整行高的粗体显示型数学分数。`authors` 按顺序接收带 `name`、`role` 字段的作者信息。不需要的副标题、调式、节拍或作者可以省略。标题字号为当前字号的 `1.5em`，副标题继承当前字号，字体则继承调用位置。
 
 行内简谱使用普通字符串：
 

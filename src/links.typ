@@ -161,6 +161,12 @@
     // system end and a complete forward repeat at the next system start.
     left = left.slice(0, left.len() - 1) + (last + (repeat-both: false),)
     right = (first + (repeat-start-visible: true),) + right.slice(1)
+  } else if first.repeat-start {
+    // Mid-line parsing lets the forward-repeat sign replace the preceding
+    // ordinary bar. Once a system break separates them, restore that bar at
+    // the previous system end and keep the forward repeat on the next system.
+    left = left.slice(0, left.len() - 1) + (last + (bar: true),)
+    right = (first + (repeat-start-visible: true),) + right.slice(1)
   }
   (left: left, right: right)
 }

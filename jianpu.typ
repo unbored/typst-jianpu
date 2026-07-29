@@ -3,6 +3,9 @@
 #import "src/parser.typ": parse-score
 #import "src/geometry.typ": metrics
 #import "src/layout.typ": render-inline-track, render-track
+#import "src/title.typ": render-title
+
+#let jianpu-title = render-title
 
 #let jianpu(
   ..groups,

@@ -156,6 +156,19 @@ r2{
   )
 ]
 
+== 开始反复恰逢换行
+
+#block(width: 40mm)[
+  #jianpu(
+    ```melody
+    1 2 3 4 |
+    r2{ 5 6 7 1 | }
+    ```,
+    size: 10pt,
+    first-indent: 0pt,
+  )
+]
+
 == 跨行结尾范围
 
 #block(width: 88mm)[
