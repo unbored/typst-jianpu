@@ -3,13 +3,13 @@
 #import "glyphs.typ": *
 
 #let event-head-offset(note) = {
-  note.min-width / 2
+  note.leading-width + note.min-width / 2
 }
 
 #let event-width(note) = {
-  // Dot occupancy is a following spacer, not part of the box whose center
-  // defines the digit, octave dots, beams, and link anchors.
-  note.min-width + note.trailing-width
+  // Accidentals and augmentation dots are outer spacers. The middle box alone
+  // defines the digit, octave dots, beams, and notation-link anchors.
+  note.leading-width + note.min-width + note.trailing-width
 }
 
 // Minimum-width wrapping remains measure-based: rows may break only between
@@ -519,11 +519,9 @@
           grace-target-shift(note, center-distance, note-head-width, same-measure: target-event.measure-index == event.measure-index)
         }
         let signed-shift = if note.direction == "previous" { -target-shift } else { target-shift }
-        let member-width = grace-member-width(note-head-width)
-        let member-gap = grace-member-gap(note-head-width)
         let group-width = grace-group-width(note, note-head-width)
         for item in event-link-items(note) {
-          let member-x = event.x + signed-shift - group-width / 2 + member-width / 2 + item.grace-index * (member-width + member-gap)
+          let member-x = event.x + signed-shift - group-width / 2 + grace-member-center-offset(note, item.grace-index, note-head-width)
           positions.push(item + (x: member-x))
         }
       } else {

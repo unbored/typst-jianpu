@@ -1,15 +1,38 @@
 // Score heading shared by full-page Jianpu examples.
 
+#let key-accidental(source) = {
+  if source.starts-with("#") or source.ends-with("#") { "sharp" }
+  else if source.starts-with("b") or source.ends-with("b") { "flat" }
+  else { none }
+}
+
+#let key-tonic-name(source, accidental) = {
+  if accidental == none { source }
+  else if source.starts-with("#") or source.starts-with("b") { source.slice(1) }
+  else { source.slice(0, source.len() - 1) }
+}
+
+#let key-accidental-text(accidental) = {
+  if accidental == "sharp" { "\u{e262}" }
+  else if accidental == "flat" { "\u{e260}" }
+  else { "" }
+}
+
 #let render-key(source) = {
   assert(type(source) == str, message: "key must use a string such as \"1=C\"")
   let parts = source.split("=")
   assert(parts.len() == 2, message: "key must use degree=tonic format")
   let degree = parts.at(0)
-  let tonic = parts.at(1)
+  let tonic-source = parts.at(1)
+  let accidental = key-accidental(tonic-source)
+  let tonic = key-tonic-name(tonic-source, accidental)
   assert(degree.len() > 0 and tonic.len() > 0, message: "key fields must not be empty")
+  assert(("A", "B", "C", "D", "E", "F", "G").contains(tonic), message: "key tonic must be an uppercase note name from A to G")
   // Keep the scale degree visually consistent with Jianpu numerals while the
   // equation sign and tonic retain a conventional bold serif appearance.
-  box[#text(font: "Arial", weight: "bold")[#degree]#text(font: "New Computer Modern", weight: "bold")[=#tonic]]
+  // Jianpu convention places the accidental before the tonic (`1=♯C`); a
+  // postfix ASCII input such as `1=C#` is accepted but normalized here.
+  box[#text(font: "Arial", weight: "bold")[#degree]#h(0.25em)#text(font: "New Computer Modern", weight: "bold")[=]#h(0.25em)#if accidental != none { text(font: "Bravura Text", fallback: false, size: 1.4em)[#key-accidental-text(accidental)] }#text(font: "New Computer Modern", weight: "bold")[#tonic]]
 }
 
 #let render-meter(source) = {

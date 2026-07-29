@@ -18,6 +18,23 @@
 #let tie-start-count(token) = { token.split("~").len() - 1 }
 #let strip-link-marks(token) = { token.replace("(", "").replace(")", "").replace("~", "") }
 
+#let accidental-prefix(token) = {
+  // Match two-character prefixes first so `bb` and `##` stay atomic.
+  if token.starts-with("bb") { (kind: "double-flat", length: 2) }
+  else if token.starts-with("##") { (kind: "double-sharp", length: 2) }
+  else if token.starts-with("#") { (kind: "sharp", length: 1) }
+  else if token.starts-with("b") { (kind: "flat", length: 1) }
+  else if token.starts-with("n") { (kind: "natural", length: 1) }
+  else if token.starts-with("x") { (kind: "double-sharp", length: 1) }
+  else { (kind: none, length: 0) }
+}
+
+#let accidental-leading-width(accidental, short-width) = {
+  if accidental == none { 0pt }
+  else if accidental == "double-flat" or accidental == "double-sharp" { short-width * 0.66 }
+  else { short-width * 0.50 }
+}
+
 #let attach-standalone-link-marks(tokens) = {
   let attached = ()
   for token in tokens {
@@ -57,20 +74,25 @@
 
 #let parse-note(token, quarter-width, eighth-width, short-width, compact: false) = {
   let core = strip-link-marks(token)
-  let direction = first-octave-direction(core)
-  let octave-up = if direction == "up" { octave-up-count(core) } else { 0 }
-  let octave-down = if direction == "down" { octave-down-count(core) } else { 0 }
+  let accidental-data = accidental-prefix(core)
+  let note-core = core.slice(accidental-data.length)
+  let direction = first-octave-direction(note-core)
+  let octave-up = if direction == "up" { octave-up-count(note-core) } else { 0 }
+  let octave-down = if direction == "down" { octave-down-count(note-core) } else { 0 }
   let octave = octave-up - octave-down
-  let pitch = pitch-index(core)
-  let dots = augmentation-dot-count(core)
-  let base-width = duration-width(core, quarter-width, eighth-width, short-width, compact: compact)
+  let pitch = pitch-index(note-core)
+  let dots = augmentation-dot-count(note-core)
+  let base-width = duration-width(note-core, quarter-width, eighth-width, short-width, compact: compact)
   (
-    raw: core, kind: "note", members: (), beams: slash-count(core),
+    raw: note-core, kind: "note", members: (), beams: slash-count(note-core),
     dots: dots,
     pitch: pitch, octave: octave, relative-pitch: pitch + octave * 7,
     octave-up: octave-up, octave-down: octave-down,
+    accidental: accidental-data.kind,
     // Keep augmentation-dot space separate from the note box. Layout layers
-    // can then append it after the head without shifting digits or beams.
+    // can append it after the head, while accidentals occupy an analogous
+    // leading column. Neither side changes the main head's own coordinates.
+    leading-width: accidental-leading-width(accidental-data.kind, short-width),
     min-width: base-width, trailing-width: base-width * dots * 0.5,
     slur-start: slur-start-count(token), slur-end: slur-end-count(token), tie-start: tie-start-count(token),
   )
@@ -90,6 +112,8 @@
     dots: duration.dots,
     pitch: root.pitch, octave: root.octave, relative-pitch: root.relative-pitch,
     octave-up: root.octave-up, octave-down: root.octave-down,
+    accidental: root.accidental,
+    leading-width: members.fold(0pt, (width, member) => calc.max(width, member.leading-width)),
     min-width: duration.min-width, trailing-width: duration.trailing-width,
     slur-start: duration.slur-start, slur-end: duration.slur-end, tie-start: duration.tie-start,
   )
@@ -105,17 +129,19 @@
   let member-tokens = parts.at(0).slice(prefix-length).split(" ").filter(member => member != "")
   let members = attach-standalone-link-marks(member-tokens)
     .map(member => parse-note(member + duration-suffix, quarter-width, eighth-width, short-width, compact: compact))
+  let visible-group-width = members.fold(0pt, (width, member) => width + short-width * 0.54 + member.leading-width * 0.75)
+  visible-group-width += calc.max(members.len() - 1, 0) * short-width * 0.12
   (
     raw: token, kind: "grace", members: members, direction: direction,
     beams: 0, dots: if members.len() > 0 { members.at(0).dots } else { 0 }, pitch: 0, octave: 0, relative-pitch: 0,
-    octave-up: 0, octave-down: 0, trailing-width: 0pt,
+    octave-up: 0, octave-down: 0, accidental: none, leading-width: 0pt, trailing-width: 0pt,
     slur-start: slur-start-count(outer-suffix), slur-end: slur-end-count(outer-suffix), tie-start: tie-start-count(outer-suffix),
     // The rendered group uses 0.54em member boxes and 0.12em internal gaps.
     // Duration boxes may be wider, but the event must never be narrower than
     // its actual glyph group or long grace sequences will overflow both sides.
     min-width: calc.max(
-      members.fold(0pt, (width, member) => width + (member.min-width + member.trailing-width) * 0.45),
-      members.len() * short-width * 0.54 + calc.max(members.len() - 1, 0) * short-width * 0.12,
+      members.fold(0pt, (width, member) => width + (member.leading-width + member.min-width + member.trailing-width) * 0.45),
+      visible-group-width,
     ),
   )
 }

@@ -6,6 +6,40 @@
   note.raw.at(0)
 }
 
+#let accidental-text(accidental) = {
+  if accidental == "flat" { "\u{e260}" }
+  else if accidental == "natural" { "\u{e261}" }
+  else if accidental == "sharp" { "\u{e262}" }
+  else if accidental == "double-sharp" { "\u{e263}" }
+  else if accidental == "double-flat" { "\u{e264}" }
+  else { "" }
+}
+
+#let accidental-head(note, body, visible-body, slot-width, scale: 1.0) = context {
+  let visible-size = measure(visible-body)
+  let symbol = text(
+    font: "Bravura Text",
+    fallback: false,
+    size: 1.4em * scale,
+  )[#accidental-text(note.accidental)]
+  let symbol-size = measure(symbol)
+  let gap = 0.08em * scale
+
+  // The accidental overflows into its separately allocated leading column.
+  // The returned box keeps the original head dimensions, so octave dots,
+  // beams, chords, and links continue to use the numeral's center.
+  box(width: slot-width, height: visible-size.height)[
+    #align(center)[#body]
+    #if note.accidental != none {
+      place(
+        top + left,
+        dx: slot-width / 2 - visible-size.width / 2 - gap - symbol-size.width,
+        dy: (visible-size.height - symbol-size.height) / 2,
+      )[#symbol]
+    }
+  ]
+}
+
 #let augmented-head(note, body, visible-body, slot-width, scale: 1.0) = context {
   let visible-size = measure(visible-body)
   let radius = 0.09em * scale
@@ -17,7 +51,11 @@
   // in its original head slot. Dot-to-digit spacing therefore never depends
   // on whether the note is a quarter, eighth, or shorter duration.
   box(width: slot-width, height: visible-size.height)[
-    #align(center)[#body]
+    #align(center)[
+      #if note.kind == "chord" { body } else {
+        accidental-head(note, body, visible-body, slot-width, scale: scale)
+      }
+    ]
     #for index in range(0, note.dots) {
       place(
         top + left,
@@ -135,7 +173,9 @@
 
 #let chord-member-head(member, note-head-width) = {
   box(width: note-head-width)[
-    #align(center)[#note-text(member)]
+    #align(center)[
+      #accidental-head(member, note-text(member), note-text(member), note-head-width)
+    ]
     #if member.octave-up > 0 {
       place(top, dy: -chord-octave-dots-height(member.octave-up, note-head-width) - chord-dot-offset(note-head-width))[
         #box(width: note-head-width, align(center)[
@@ -156,7 +196,9 @@
 #let chord-head(note, note-head-width: 12pt) = {
   let root = note.members.at(0)
   box(width: note-head-width)[
-    #align(center)[#note-text(root)]
+    #align(center)[
+      #accidental-head(root, note-text(root), note-text(root), note-head-width)
+    ]
     #for index in range(1, note.members.len()) {
       place(top, dy: -chord-member-offset(note, index, note-head-width))[
         #chord-member-head(note.members.at(index), note-head-width)
@@ -193,8 +235,27 @@
   note-head-width / 0.7 * 0.12
 }
 
+#let grace-member-leading-width(member) = {
+  member.leading-width * 0.75
+}
+
+#let grace-member-slot-width(member, note-head-width) = {
+  grace-member-leading-width(member) + grace-member-width(note-head-width)
+}
+
 #let grace-group-width(note, note-head-width) = {
-  note.members.len() * grace-member-width(note-head-width) + calc.max(note.members.len() - 1, 0) * grace-member-gap(note-head-width)
+  let width = note.members.fold(0pt, (width, member) => width + grace-member-slot-width(member, note-head-width))
+  width += calc.max(note.members.len() - 1, 0) * grace-member-gap(note-head-width)
+  width
+}
+
+#let grace-member-center-offset(note, index, note-head-width) = {
+  let offset = 0pt
+  for preceding in note.members.slice(0, index) {
+    offset += grace-member-slot-width(preceding, note-head-width) + grace-member-gap(note-head-width)
+  }
+  let member = note.members.at(index)
+  offset + grace-member-leading-width(member) + grace-member-width(note-head-width) / 2
 }
 
 #let grace-head(note, note-head-width) = {
@@ -212,31 +273,47 @@
   // duration boxes. The reduced head size determines both end padding and
   // total beam length.
   let group-width = grace-group-width(note, note-head-width)
-  // Keep the familiar two-note end inset, but apply it only once instead of
-  // accidentally subtracting every internal member gap from a long beam.
-  let beam-width = if note.members.len() <= 1 { member-width } else { group-width - member-gap }
+  let first-center = if note.members.len() > 0 { grace-member-center-offset(note, 0, note-head-width) } else { 0pt }
+  let last-center = if note.members.len() > 0 { grace-member-center-offset(note, note.members.len() - 1, note-head-width) } else { 0pt }
+  let beam-left = first-center - member-width / 2
+  let beam-width = if note.members.len() <= 1 { member-width } else { last-center - first-center + member-width }
   stack(dir: ttb, spacing: 0.08em,
     stack(dir: ltr, spacing: member-gap,
-      ..note.members.map(member => box(width: member-width, height: octave-dots-height(max-up, dot-radius: dot-radius, dot-gap: dot-gap))[
-        #align(center + bottom)[#octave-dots(member.octave-up, dot-radius: dot-radius, dot-gap: dot-gap)]
+      ..note.members.map(member => box(width: grace-member-slot-width(member, note-head-width), height: octave-dots-height(max-up, dot-radius: dot-radius, dot-gap: dot-gap))[
+        #place(left, dx: grace-member-leading-width(member))[
+          #box(width: member-width, align(center + bottom)[
+            #octave-dots(member.octave-up, dot-radius: dot-radius, dot-gap: dot-gap)
+          ])
+        ]
       ]),
     ),
     align(center)[
       #stack(dir: ltr, spacing: member-gap,
         ..note.members.map(member => {
           let body = text(size: scale * 1em)[#note-text(member)]
-          augmented-head(member, body, body, member-width, scale: scale)
+          grid(
+            columns: (grace-member-leading-width(member), member-width),
+            gutter: 0pt,
+            [],
+            augmented-head(member, body, body, member-width, scale: scale),
+          )
         }),
       )
     ],
     ..range(0, beams).map(_ => align(center)[
-      #box(width: beam-width)[
-        #line(length: 100%, stroke: 0.04em)
+      #box(width: group-width)[
+        #place(left, dx: beam-left)[
+          #line(length: beam-width, stroke: 0.04em)
+        ]
       ]
     ]),
     stack(dir: ltr, spacing: member-gap,
-      ..note.members.map(member => box(width: member-width, height: octave-dots-height(max-down, dot-radius: dot-radius, dot-gap: dot-gap))[
-        #align(center + top)[#octave-dots(member.octave-down, dot-radius: dot-radius, dot-gap: dot-gap)]
+      ..note.members.map(member => box(width: grace-member-slot-width(member, note-head-width), height: octave-dots-height(max-down, dot-radius: dot-radius, dot-gap: dot-gap))[
+        #place(left, dx: grace-member-leading-width(member))[
+          #box(width: member-width, align(center + top)[
+            #octave-dots(member.octave-down, dot-radius: dot-radius, dot-gap: dot-gap)
+          ])
+        ]
       ]),
     ),
   )

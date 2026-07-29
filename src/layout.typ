@@ -108,6 +108,12 @@
   }
 
   for (index, note) in measure-data.notes.enumerate() {
+    if note.leading-width > 0pt {
+      // The accidental is painted from the head cell into this empty prefix;
+      // keeping it separate preserves the head center on every layer.
+      columns.push(note.leading-width)
+      cells.push([])
+    }
     columns.push(note.min-width)
     if note.kind == "grace" {
       let row-target = if grace-targets != none and index < grace-targets.len() { grace-targets.at(index) } else { none }
@@ -248,6 +254,10 @@
   }
 
   for (index, note) in measure.notes.enumerate() {
+    if note.leading-width > 0pt {
+      columns.push(note.leading-width)
+      cells.push([])
+    }
     columns.push(note.min-width)
     cells.push(box(width: note.min-width)[
       #align(center)[
@@ -393,7 +403,7 @@
       let last-note = measure.notes.at(end)
       let first-inset = calc.max(event-head-offset(first-note) - beam-note-width / 2, 0pt)
       let last-inset = calc.max(
-        last-note.trailing-width + last-note.min-width - event-head-offset(last-note) - beam-note-width / 2,
+        event-width(last-note) - event-head-offset(last-note) - beam-note-width / 2,
         0pt,
       )
       let line-width = calc.max(full-width - first-inset - last-inset, beam-note-width)
@@ -456,6 +466,10 @@
   }
 
   for (index, note) in measure.notes.enumerate() {
+    if note.leading-width > 0pt {
+      columns.push(note.leading-width)
+      cells.push([])
+    }
     columns.push(note.min-width)
     cells.push(box(width: note.min-width)[
       #align(center)[
