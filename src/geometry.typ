@@ -12,6 +12,8 @@
   beam-thickness: size * 0.04,
   dot-radius: size * 0.075,
   dot-gap: size * 0.12,
-  row-gap: size * 0.9,
+  // Keep separate notation systems visibly distinct even when neither row
+  // contains octave dots, beams, grace notes, or other height-extending marks.
+  row-gap: size * 2,
   group-gap: size * 1.2,
 )
