@@ -243,6 +243,23 @@
   grace-member-leading-width(member) + grace-member-width(note-head-width)
 }
 
+#let grace-member-slot(member, note-head-width, body, height: auto, alignment: center) = {
+  let leading-width = grace-member-leading-width(member)
+  let member-width = grace-member-width(note-head-width)
+  let body-cell = if height == auto {
+    box(width: member-width, align(alignment)[#body])
+  } else {
+    box(width: member-width, height: height, align(alignment)[#body])
+  }
+  // Every grace layer uses these exact two columns. In particular, octave
+  // dots must not reproduce the accidental offset with an independent place.
+  if height == auto {
+    grid(columns: (leading-width, member-width), gutter: 0pt, [], body-cell)
+  } else {
+    grid(columns: (leading-width, member-width), rows: (height,), gutter: 0pt, [], body-cell)
+  }
+}
+
 #let grace-group-width(note, note-head-width) = {
   let width = note.members.fold(0pt, (width, member) => width + grace-member-slot-width(member, note-head-width))
   width += calc.max(note.members.len() - 1, 0) * grace-member-gap(note-head-width)
@@ -279,22 +296,21 @@
   let beam-width = if note.members.len() <= 1 { member-width } else { last-center - first-center + member-width }
   stack(dir: ttb, spacing: 0.08em,
     stack(dir: ltr, spacing: member-gap,
-      ..note.members.map(member => box(width: grace-member-slot-width(member, note-head-width), height: octave-dots-height(max-up, dot-radius: dot-radius, dot-gap: dot-gap))[
-        #place(left, dx: grace-member-leading-width(member))[
-          #box(width: member-width, align(center + bottom)[
-            #octave-dots(member.octave-up, dot-radius: dot-radius, dot-gap: dot-gap)
-          ])
-        ]
-      ]),
+      ..note.members.map(member => grace-member-slot(
+        member,
+        note-head-width,
+        octave-dots(member.octave-up, dot-radius: dot-radius, dot-gap: dot-gap),
+        height: octave-dots-height(max-up, dot-radius: dot-radius, dot-gap: dot-gap),
+        alignment: center + bottom,
+      )),
     ),
     align(center)[
       #stack(dir: ltr, spacing: member-gap,
         ..note.members.map(member => {
           let body = text(size: scale * 1em)[#note-text(member)]
-          grid(
-            columns: (grace-member-leading-width(member), member-width),
-            gutter: 0pt,
-            [],
+          grace-member-slot(
+            member,
+            note-head-width,
             augmented-head(member, body, body, member-width, scale: scale),
           )
         }),
@@ -308,13 +324,13 @@
       ]
     ]),
     stack(dir: ltr, spacing: member-gap,
-      ..note.members.map(member => box(width: grace-member-slot-width(member, note-head-width), height: octave-dots-height(max-down, dot-radius: dot-radius, dot-gap: dot-gap))[
-        #place(left, dx: grace-member-leading-width(member))[
-          #box(width: member-width, align(center + top)[
-            #octave-dots(member.octave-down, dot-radius: dot-radius, dot-gap: dot-gap)
-          ])
-        ]
-      ]),
+      ..note.members.map(member => grace-member-slot(
+        member,
+        note-head-width,
+        octave-dots(member.octave-down, dot-radius: dot-radius, dot-gap: dot-gap),
+        height: octave-dots-height(max-down, dot-radius: dot-radius, dot-gap: dot-gap),
+        alignment: center + top,
+      )),
     ),
   )
 }
