@@ -1,4 +1,20 @@
 #import "../jianpu.typ": jianpu, jianpu-title
+#import "../src/parser.typ": parse-measures
+
+// Model-only checks: these emit no content, but keep exact onset/duration
+// semantics covered by the regular visual compilation command.
+#let duration-model = parse-measures(
+  ("1", "2/.", "t3[3 4 5]/"),
+  24pt,
+  18pt,
+  12pt,
+)
+#let duration-notes = duration-model.at(0).notes
+#assert(duration-notes.at(0).duration == (num: 1, den: 4))
+#assert(duration-notes.at(1).duration == (num: 3, den: 16))
+#assert(duration-notes.at(2).onset == (num: 7, den: 16))
+#assert(duration-notes.at(2).duration == (num: 1, den: 12))
+#assert(duration-model.at(0).duration == (num: 11, den: 16))
 
 #set text(font: "Noto Serif CJK KR")
 

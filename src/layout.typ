@@ -296,8 +296,9 @@
 }
 
 #let note-quarter-duration(note) = {
-  let base = 1.0 / calc.pow(2, note.beams)
-  base * (1 + note.dots * 0.5)
+  // The parser owns logical time. Convert its exact whole-note fraction to
+  // quarter-note units only at this legacy visual grouping boundary.
+  note.duration.num * 4.0 / note.duration.den
 }
 
 #let same-tuplet(left, right) = {

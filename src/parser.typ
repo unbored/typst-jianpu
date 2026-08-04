@@ -18,6 +18,54 @@
 #let tie-start-count(token) = { token.split("~").len() - 1 }
 #let strip-link-marks(token) = { token.replace("(", "").replace(")", "").replace("~", "") }
 
+// Logical time uses reduced integer fractions instead of floating-point
+// values. This keeps future cross-track onset comparisons exact.
+#let time-value(numerator, denominator) = {
+  assert(denominator != 0, message: "time-value denominator cannot be zero")
+  let numerator = if denominator < 0 { -numerator } else { numerator }
+  let denominator = calc.abs(denominator)
+  let left = calc.abs(numerator)
+  let right = denominator
+  while right != 0 {
+    let remainder = calc.rem(left, right)
+    left = right
+    right = remainder
+  }
+  let divisor = calc.max(left, 1)
+  (num: numerator / divisor, den: denominator / divisor)
+}
+
+#let add-time(left, right) = time-value(
+  left.num * right.den + right.num * left.den,
+  left.den * right.den,
+)
+
+#let scale-time(value, numerator, denominator) = time-value(
+  value.num * numerator,
+  value.den * denominator,
+)
+
+#let power-of-two(exponent) = {
+  let result = 1
+  for _ in range(0, exponent) { result *= 2 }
+  result
+}
+
+#let written-time(beams, dots) = {
+  let dot-power = power-of-two(dots)
+  // One dot contributes 1/2, the next 1/4, and so on.
+  let dot-numerator = power-of-two(dots + 1) - 1
+  time-value(dot-numerator, 4 * power-of-two(beams) * dot-power)
+}
+
+#let tuplet-time-scale(number) = {
+  // In the abbreviated tN form, N notes occupy the duration of the greatest
+  // power of two below N: 3:2, 5–7:4, 9–15:8, and so forth.
+  let normal-count = 1
+  while normal-count * 2 < number { normal-count *= 2 }
+  time-value(normal-count, number)
+}
+
 #let accidental-prefix(token) = {
   // Match two-character prefixes first so `bb` and `##` stay atomic.
   if token.starts-with("bb") { (kind: "double-flat", length: 2) }
@@ -119,10 +167,12 @@
   let octave = octave-up - octave-down
   let pitch = pitch-index(note-core)
   let dots = augmentation-dot-count(note-core)
+  let duration = written-time(slash-count(note-core), dots)
   let base-width = duration-width(note-core, quarter-width, eighth-width, short-width, compact: compact)
   (
     raw: note-core, kind: "note", members: (), beams: slash-count(note-core),
     dots: dots,
+    written-duration: duration, duration: duration,
     pitch: pitch, octave: octave, relative-pitch: pitch + octave * 7,
     octave-up: octave-up, octave-down: octave-down,
     accidental: accidental-data.kind,
@@ -148,6 +198,7 @@
   (
     raw: root.raw, kind: "chord", members: ordered, beams: duration.beams,
     dots: duration.dots,
+    written-duration: duration.written-duration, duration: duration.duration,
     pitch: root.pitch, octave: root.octave, relative-pitch: root.relative-pitch,
     octave-up: root.octave-up, octave-down: root.octave-down,
     accidental: root.accidental,
@@ -173,6 +224,9 @@
   (
     raw: token, kind: "grace", members: members, direction: direction,
     beams: 0, dots: if members.len() > 0 { members.at(0).dots } else { 0 }, pitch: 0, octave: 0, relative-pitch: 0,
+    // Grace members retain their written durations for drawing, while the
+    // grace event itself occupies no position on the main musical timeline.
+    written-duration: time-value(0, 1), duration: time-value(0, 1),
     octave-up: 0, octave-down: 0, accidental: none, leading-width: 0pt, trailing-width: 0pt,
     tuplet: none,
     slur-start: slur-start-count(outer-suffix), slur-end: slur-end-count(outer-suffix), tie-start: tie-start-count(outer-suffix),
@@ -219,13 +273,31 @@
     assert(not member-tokens.any(member => strip-link-marks(member).contains("/")), message: "do not mix member durations with a tuplet group suffix")
   }
 
+  let time-scale = tuplet-time-scale(number)
   member-tokens.enumerate().map(((index, member)) => {
     let event = parse-event(member + suffix, quarter-width, eighth-width, short-width, sort-chords: sort-chords, compact: compact)
-    event + (tuplet: (id: id, number: number, index: index, count: member-tokens.len()),)
+    event + (
+      duration: scale-time(event.duration, time-scale.num, time-scale.den),
+      tuplet: (
+        id: id,
+        number: number,
+        index: index,
+        count: member-tokens.len(),
+        time-scale: time-scale,
+      ),
+    )
   })
 }
 
-#let plain-measure(notes, bar) = (notes: notes, bar: bar, final-bar: false)
+#let plain-measure(notes, bar) = {
+  let onset = time-value(0, 1)
+  let timed-notes = ()
+  for note in notes {
+    timed-notes.push(note + (onset: onset,))
+    onset = add-time(onset, note.duration)
+  }
+  (notes: timed-notes, duration: onset, bar: bar, final-bar: false)
+}
 
 #let parse-measures(tokens, quarter-width, eighth-width, short-width, sort-chords: true, final-bar: true, compact: false) = {
   let measures = ()
