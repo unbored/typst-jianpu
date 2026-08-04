@@ -588,9 +588,11 @@
 }
 
 #let grace-octave-extra(note, note-head-width) = {
-  let scale = 0.75
-  let dot-radius = note-head-width * 0.075 * scale
-  let dot-gap = note-head-width * 0.12 * scale
+  // These metrics are shared with `grace-head`; otherwise every additional
+  // octave dot accumulates a drawing-versus-layout displacement.
+  let layers-metrics = grace-layer-metrics(note-head-width)
+  let dot-radius = layers-metrics.dot-radius
+  let dot-gap = layers-metrics.dot-gap
   let max-up = note.members.fold(0, (count, member) => calc.max(count, member.octave-up))
   let max-down = note.members.fold(0, (count, member) => calc.max(count, member.octave-down))
   let upper-height = octave-dots-height(max-up, dot-radius: dot-radius, dot-gap: dot-gap)

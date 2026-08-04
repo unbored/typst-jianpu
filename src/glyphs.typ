@@ -1,5 +1,7 @@
 // Local notation glyphs and their intrinsic geometry.
 
+#import "geometry.typ": note-layer-metrics, notation-size-from-head-width
+
 #let note-text(note) = {
   // The rendered head is currently the first character. Suffixes are parsed
   // as attributes and intentionally not shown yet.
@@ -224,6 +226,17 @@
   ]
 }
 
+#let octave-dot-slot(count, width, height: auto, valign: top, dot-radius: 0.7pt, dot-gap: 0.6pt) = {
+  let body = align(center)[#octave-dots(count, dot-radius: dot-radius, dot-gap: dot-gap)]
+  let actual-height = if height == auto {
+    octave-dots-height(count, dot-radius: dot-radius, dot-gap: dot-gap)
+  } else {
+    height
+  }
+
+  box(width: width, height: actual-height, align(center + if valign == bottom { bottom } else { top })[#body])
+}
+
 // These functions are the canonical horizontal model for grace groups.
 // Occupancy, link anchors, and beam width must derive from them or long groups
 // will accumulate visible drift.
@@ -233,6 +246,16 @@
 
 #let grace-member-gap(note-head-width) = {
   note-head-width / 0.7 * 0.12
+}
+
+#let grace-layer-metrics(note-head-width) = {
+  note-layer-metrics(
+    notation-size-from-head-width(note-head-width),
+    dot-scale: 0.75,
+    // Preserve the established compact grace spacing independently from the
+    // main row's larger inter-layer gap.
+    layer-gap-factor: 0.08,
+  )
 }
 
 #let grace-member-leading-width(member) = {
@@ -275,13 +298,16 @@
   offset + grace-member-leading-width(member) + grace-member-width(note-head-width) / 2
 }
 
-#let grace-head(note, note-head-width) = {
+#let grace-head(note, note-head-width) = context {
   // Curves are deliberately deferred. This first pass only establishes the
   // compact note group and its independent default duration.
   let scale = 0.75
   let beams = if note.members.len() > 0 { note.members.at(0).beams } else { 0 }
-  let dot-radius = 0.075em * scale
-  let dot-gap = 0.12em * scale
+  // Keep drawing and layout compensation on the same note-head-based unit.
+  // Using the ambient `em` here made the error accumulate with every dot row.
+  let layers-metrics = grace-layer-metrics(note-head-width)
+  let dot-radius = layers-metrics.dot-radius
+  let dot-gap = layers-metrics.dot-gap
   let member-width = grace-member-width(note-head-width)
   let member-gap = grace-member-gap(note-head-width)
   let max-up = note.members.fold(0, (count, member) => calc.max(count, member.octave-up))
@@ -294,51 +320,78 @@
   let last-center = if note.members.len() > 0 { grace-member-center-offset(note, note.members.len() - 1, note-head-width) } else { 0pt }
   let beam-left = first-center - member-width / 2
   let beam-width = if note.members.len() <= 1 { member-width } else { last-center - first-center + member-width }
-  stack(dir: ttb, spacing: 0.08em,
-    stack(dir: ltr, spacing: member-gap,
-      ..note.members.map(member => grace-member-slot(
-        member,
-        note-head-width,
-        octave-dots(member.octave-up, dot-radius: dot-radius, dot-gap: dot-gap),
-        height: octave-dots-height(max-up, dot-radius: dot-radius, dot-gap: dot-gap),
-        alignment: center + bottom,
-      )),
-    ),
-    align(center)[
-      #stack(dir: ltr, spacing: member-gap,
-        ..note.members.map(member => {
-          let body = text(size: scale * 1em)[#note-text(member)]
-          grace-member-slot(
-            member,
-            note-head-width,
-            augmented-head(member, body, body, member-width, scale: scale),
-          )
-        }),
-      )
-    ],
-    ..range(0, beams).map(_ => align(center)[
-      #box(width: group-width)[
-        #place(left, dx: beam-left)[
-          #line(length: beam-width, stroke: 0.04em)
-        ]
-      ]
-    ]),
-    stack(dir: ltr, spacing: member-gap,
-      ..note.members.map(member => grace-member-slot(
-        member,
-        note-head-width,
-        octave-dots(member.octave-down, dot-radius: dot-radius, dot-gap: dot-gap),
-        height: octave-dots-height(max-down, dot-radius: dot-radius, dot-gap: dot-gap),
-        alignment: center + top,
-      )),
-    ),
+  let upper-height = octave-dots-height(max-up, dot-radius: dot-radius, dot-gap: dot-gap)
+  let lower-height = octave-dots-height(max-down, dot-radius: dot-radius, dot-gap: dot-gap)
+  let layer-gap = layers-metrics.layer-gap
+  let beam-thickness = layers-metrics.beam-thickness
+  let upper-layer = stack(dir: ltr, spacing: member-gap,
+    ..note.members.map(member => grace-member-slot(
+      member,
+      note-head-width,
+      octave-dot-slot(
+        member.octave-up,
+        member-width,
+        height: upper-height,
+        valign: bottom,
+        dot-radius: dot-radius,
+        dot-gap: dot-gap,
+      ),
+    )),
   )
+  let digit-layer = stack(dir: ltr, spacing: member-gap,
+    ..note.members.map(member => {
+      let body = text(size: scale * 1em)[#note-text(member)]
+      grace-member-slot(
+        member,
+        note-head-width,
+        augmented-head(member, body, body, member-width, scale: scale),
+      )
+    }),
+  )
+  let lower-layer = stack(dir: ltr, spacing: member-gap,
+    ..note.members.map(member => grace-member-slot(
+      member,
+      note-head-width,
+      octave-dot-slot(
+        member.octave-down,
+        member-width,
+        height: lower-height,
+        valign: top,
+        dot-radius: dot-radius,
+        dot-gap: dot-gap,
+      ),
+    )),
+  )
+  let layers = (upper-layer, digit-layer)
+  let rows = (upper-height, measure(digit-layer).height)
+  for _ in range(0, beams) {
+    layers.push(box(width: group-width, height: beam-thickness)[
+      #place(top + left, dx: beam-left)[
+        #line(length: beam-width, stroke: beam-thickness)
+      ]
+    ])
+    rows.push(beam-thickness)
+  }
+  layers.push(lower-layer)
+  rows.push(lower-height)
+
+  // Explicit row heights keep upper dots from changing the beam anchor.
+  grid(columns: (group-width,), rows: rows, row-gutter: layer-gap, ..layers)
 }
 
 // Single dispatch point for every event head painted by the layout module.
 #let note-head(note, note-head-width: 12pt) = {
   if note.kind == "grace" {
-    box(width: note-head-width, align(center)[#grace-head(note, note-head-width)])
+    context {
+      let body = grace-head(note, note-head-width)
+      let body-size = measure(body)
+      // The grace group is usually wider than the event's canonical head box.
+      // Center it with an explicit overflow offset: `align(center)` does not
+      // provide a reliable anchor when its child is wider than the container.
+      box(width: note-head-width, height: body-size.height)[
+        #place(top + left, dx: note-head-width / 2 - body-size.width / 2)[#body]
+      ]
+    }
   } else {
     let body = if note.kind == "chord" {
       chord-head(note, note-head-width: note-head-width)

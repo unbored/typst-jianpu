@@ -57,18 +57,6 @@
   count
 }
 
-#let octave-dot-slot(count, width, height: auto, valign: top, dot-radius: 0.7pt, dot-gap: 0.6pt) = {
-  let body = align(center)[#octave-dots(count, dot-radius: dot-radius, dot-gap: dot-gap)]
-  let actual-height = if height == auto {
-    octave-dots-height(count, dot-radius: dot-radius, dot-gap: dot-gap)
-  } else {
-    height
-  }
-
-  box(width: width, height: actual-height, align(center + if valign == bottom { bottom } else { top })[#body])
-}
-
-
 // A measure is painted as transparent aligned layers. Note, beam, and dot rows
 // must all consume the exact same horizontal columns.
 #let render-note-row(
