@@ -593,18 +593,22 @@
   let layers-metrics = grace-layer-metrics(note-head-width)
   let dot-radius = layers-metrics.dot-radius
   let dot-gap = layers-metrics.dot-gap
-  let max-up = note.members.fold(0, (count, member) => calc.max(count, member.octave-up))
   let max-down = note.members.fold(0, (count, member) => calc.max(count, member.octave-down))
-  let upper-height = octave-dots-height(max-up, dot-radius: dot-radius, dot-gap: dot-gap)
+  let member-width = grace-member-width(note-head-width)
+  let upper-height = note.members.fold(0pt, (height, member) => {
+    let dot-height = octave-dots-height(member.octave-up, dot-radius: dot-radius, dot-gap: dot-gap)
+    calc.max(height, notation-marked-upper-height(member, dot-height, member-width))
+  })
   let lower-height = octave-dots-height(max-down, dot-radius: dot-radius, dot-gap: dot-gap)
   upper-height + lower-height
 }
 
 #let notation-link-upper-height(note, note-head-width, dot-radius, dot-gap) = {
-  calc.max(
+  let intrinsic-height = calc.max(
     octave-dots-height(note.octave-up, dot-radius: dot-radius, dot-gap: dot-gap),
     chord-upper-height(note, note-head-width),
   )
+  notation-marked-upper-height(note, intrinsic-height, note-head-width)
 }
 
 #let notation-link-item-upper-height(item, note-head-width, dot-radius, dot-gap) = {
@@ -612,7 +616,12 @@
     let layers-metrics = grace-layer-metrics(note-head-width)
     let max-down = item.grace-parent.members.fold(0, (count, member) => calc.max(count, member.octave-down))
     let lower-height = octave-dots-height(max-down, dot-radius: layers-metrics.dot-radius, dot-gap: layers-metrics.dot-gap)
-    let member-upper-height = octave-dots-height(item.note.octave-up, dot-radius: layers-metrics.dot-radius, dot-gap: layers-metrics.dot-gap)
+    let member-dot-height = octave-dots-height(item.note.octave-up, dot-radius: layers-metrics.dot-radius, dot-gap: layers-metrics.dot-gap)
+    let member-upper-height = notation-marked-upper-height(
+      item.note,
+      member-dot-height,
+      grace-member-width(note-head-width),
+    )
     // Lower dots lift the complete grace group, but upper dots only enlarge
     // their own member. Applying the group's maximum upper stack here made
     // every member look equally tall and forced long inner slurs too high.

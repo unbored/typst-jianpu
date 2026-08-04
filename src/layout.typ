@@ -248,8 +248,12 @@
       cells.push([])
     }
     columns.push(note.min-width)
-    cells.push(box(width: note.min-width)[
-      #align(center)[
+    let intrinsic-height = calc.max(
+      octave-dots-height(note.octave-up, dot-radius: dot-radius, dot-gap: dot-gap),
+      chord-upper-height(note, note-head-width),
+    )
+    cells.push(box(width: note.min-width, height: actual-slot-height)[
+      #place(top + center)[
         #octave-dot-slot(
           note.octave-up,
           note-head-width,
@@ -259,6 +263,14 @@
           dot-gap: dot-gap,
         )
       ]
+      #if note.marks.len() > 0 {
+        place(
+          bottom + center,
+          dy: -intrinsic-height - notation-mark-gap(note-head-width),
+        )[
+          #notation-mark-stack(note, note-head-width)
+        ]
+      }
     ])
 
     if note.trailing-width > 0pt {
@@ -817,6 +829,14 @@
     octave-dots-height(row-max-octave-up(row), dot-radius: dot-radius, dot-gap: dot-gap),
     row-max-chord-upper-height(row, beam-note-width),
   )
+  for measure in row {
+    for note in measure.notes {
+      notation-upper-height = calc.max(
+        notation-upper-height,
+        notation-link-upper-height(note, beam-note-width, dot-radius, dot-gap),
+      )
+    }
+  }
   // `move` does not affect layout bounds, so reserve the same distance that
   // grace groups are lifted above the ordinary note row.
   let grace-upper-reserve = row-grace-lift(row, beam-note-width)

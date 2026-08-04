@@ -18,6 +18,31 @@
 #let tie-start-count(token) = { token.split("~").len() - 1 }
 #let strip-link-marks(token) = { token.replace("(", "").replace(")", "").replace("~", "") }
 
+#let notation-symbol-data(source, source-index) = {
+  assert(source == "sym.harmonic", message: "unknown notation symbol: " + source)
+  (
+    name: source.slice(4),
+    category: "technique",
+    placement: "above",
+    priority: 300,
+    source-index: source-index,
+  )
+}
+
+#let event-token-data(token) = {
+  let parts = token.split("@")
+  (
+    core: parts.at(0),
+    marks: parts.slice(1).enumerate().map(((index, source)) => notation-symbol-data(source, index)),
+  )
+}
+
+#let append-event-suffix(token, suffix) = {
+  let parts = token.split("@")
+  let core = parts.at(0) + suffix
+  if parts.len() == 1 { core } else { core + "@" + parts.slice(1).join("@") }
+}
+
 // Logical time uses reduced integer fractions instead of floating-point
 // values. This keeps future cross-track onset comparisons exact.
 #let time-value(numerator, denominator) = {
@@ -87,10 +112,18 @@
   let attached = ()
   for token in tokens {
     let standalone-link = token == "(" or token == ")" or token == "~"
+    let standalone-symbol = token.starts-with("sym.")
     let has-preceding-event = attached.len() > 0 and attached.at(attached.len() - 1) != "|"
-    if standalone-link and has-preceding-event {
+    if (standalone-link or standalone-symbol) and has-preceding-event {
       let last = attached.at(attached.len() - 1)
-      attached = attached.slice(0, attached.len() - 1) + (last + token,)
+      let attachment = if standalone-symbol {
+        let symbol-source = strip-link-marks(token)
+        let trailing-links = token.replace(symbol-source, "")
+        trailing-links + "@" + symbol-source
+      } else {
+        token
+      }
+      attached = attached.slice(0, attached.len() - 1) + (last + attachment,)
     } else {
       attached.push(token)
     }
@@ -158,6 +191,8 @@
 }
 
 #let parse-note(token, quarter-width, eighth-width, short-width, compact: false) = {
+  let token-data = event-token-data(token)
+  let token = token-data.core
   let core = strip-link-marks(token)
   let accidental-data = accidental-prefix(core)
   let note-core = core.slice(accidental-data.length)
@@ -173,6 +208,7 @@
     raw: note-core, kind: "note", members: (), beams: slash-count(note-core),
     dots: dots,
     written-duration: duration, duration: duration,
+    marks: token-data.marks,
     pitch: pitch, octave: octave, relative-pitch: pitch + octave * 7,
     octave-up: octave-up, octave-down: octave-down,
     accidental: accidental-data.kind,
@@ -187,9 +223,11 @@
 }
 
 #let parse-chord(token, quarter-width, eighth-width, short-width, sort-chords: true, compact: false) = {
+  let token-data = event-token-data(token)
+  let token = token-data.core
   let parts = token.split("]")
-  let members = parts.at(0).slice(2).split(" ")
-    .filter(member => member != "")
+  let member-tokens = parts.at(0).slice(2).split(" ").filter(member => member != "")
+  let members = attach-standalone-link-marks(member-tokens)
     .map(member => parse-note(member, quarter-width, eighth-width, short-width, compact: compact))
   let ordered = if sort-chords { members.sorted(key: member => member.relative-pitch) } else { members }
   let root = ordered.at(0)
@@ -199,6 +237,7 @@
     raw: root.raw, kind: "chord", members: ordered, beams: duration.beams,
     dots: duration.dots,
     written-duration: duration.written-duration, duration: duration.duration,
+    marks: token-data.marks,
     pitch: root.pitch, octave: root.octave, relative-pitch: root.relative-pitch,
     octave-up: root.octave-up, octave-down: root.octave-down,
     accidental: root.accidental,
@@ -210,6 +249,8 @@
 }
 
 #let parse-grace(token, quarter-width, eighth-width, short-width, compact: false) = {
+  let token-data = event-token-data(token)
+  let token = token-data.core
   let direction = if token.starts-with("g<[") { "previous" } else { "next" }
   let prefix-length = if direction == "previous" { 3 } else { 2 }
   let parts = token.split("]")
@@ -218,7 +259,8 @@
   let duration-suffix = if stripped-suffix.contains("/") { stripped-suffix } else { "//" + stripped-suffix }
   let member-tokens = parts.at(0).slice(prefix-length).split(" ").filter(member => member != "")
   let members = attach-standalone-link-marks(member-tokens)
-    .map(member => parse-note(member + duration-suffix, quarter-width, eighth-width, short-width, compact: compact))
+    .map(member => parse-note(append-event-suffix(member, duration-suffix), quarter-width, eighth-width, short-width, compact: compact))
+  assert(token-data.marks.len() == 0, message: "symbols on grace groups are not supported yet")
   let visible-group-width = members.fold(0pt, (width, member) => width + short-width * 0.54 + member.leading-width * 0.75)
   visible-group-width += calc.max(members.len() - 1, 0) * short-width * 0.12
   (
@@ -227,6 +269,7 @@
     // Grace members retain their written durations for drawing, while the
     // grace event itself occupies no position on the main musical timeline.
     written-duration: time-value(0, 1), duration: time-value(0, 1),
+    marks: token-data.marks,
     octave-up: 0, octave-down: 0, accidental: none, leading-width: 0pt, trailing-width: 0pt,
     tuplet: none,
     slur-start: slur-start-count(outer-suffix), slur-end: slur-end-count(outer-suffix), tie-start: tie-start-count(outer-suffix),
@@ -275,7 +318,7 @@
 
   let time-scale = tuplet-time-scale(number)
   member-tokens.enumerate().map(((index, member)) => {
-    let event = parse-event(member + suffix, quarter-width, eighth-width, short-width, sort-chords: sort-chords, compact: compact)
+    let event = parse-event(append-event-suffix(member, suffix), quarter-width, eighth-width, short-width, sort-chords: sort-chords, compact: compact)
     event + (
       duration: scale-time(event.duration, time-scale.num, time-scale.den),
       tuplet: (

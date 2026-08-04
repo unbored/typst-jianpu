@@ -85,6 +85,74 @@
   ]
 }
 
+// Standard attached symbols come from Bravura Text. Their catalog owns
+// placement and priority; source order only breaks ties within one category.
+#let notation-symbol-text(name) = {
+  if name == "harmonic" { "\u{e614}" }
+  else { panic("unknown notation symbol: " + name) }
+}
+
+#let notation-mark-slot-height(note-head-width) = note-head-width * 0.55
+#let notation-mark-gap(note-head-width) = {
+  // Match the ordinary octave-dot spacing ratio at every notation scale.
+  notation-size-from-head-width(note-head-width) * 0.12
+}
+#let notation-mark-stack-gap(note-head-width) = note-head-width * 0.10
+
+#let notation-mark-stack-height(note, note-head-width) = {
+  let count = note.marks.len()
+  if count == 0 { 0pt }
+  else {
+    (
+      count * notation-mark-slot-height(note-head-width)
+        + (count - 1) * notation-mark-stack-gap(note-head-width)
+    )
+  }
+}
+
+#let notation-marked-upper-height(note, intrinsic-height, note-head-width) = {
+  if note.marks.len() == 0 { intrinsic-height }
+  else {
+    (
+      intrinsic-height + notation-mark-gap(note-head-width)
+        + notation-mark-stack-height(note, note-head-width)
+    )
+  }
+}
+
+#let notation-mark-stack(note, note-head-width) = {
+  let ordered = note.marks.sorted(key: mark => mark.priority * 1000 + mark.source-index)
+  stack(dir: btt, spacing: notation-mark-stack-gap(note-head-width),
+    ..ordered.map(mark => box(
+      width: note-head-width,
+      height: notation-mark-slot-height(note-head-width),
+      align(center + horizon)[
+        #text(
+          font: "Bravura Text",
+          fallback: false,
+          // Use the same scale factor as accidentals; SMuFL's harmonic circle
+          // is otherwise noticeably smaller than the surrounding notation.
+          size: notation-size-from-head-width(note-head-width) * 1.8,
+          top-edge: "bounds",
+          bottom-edge: "bounds",
+        )[#notation-symbol-text(mark.name)]
+      ],
+    )),
+  )
+}
+
+#let notation-marks-above(note, intrinsic-height, note-head-width) = {
+  if note.marks.len() > 0 {
+    let stack-height = notation-mark-stack-height(note, note-head-width)
+    place(
+      top + center,
+      dy: -intrinsic-height - notation-mark-gap(note-head-width) - stack-height,
+    )[
+      #notation-mark-stack(note, note-head-width)
+    ]
+  }
+}
+
 // Chord geometry is intrinsic to the stacked head. Layout code only needs the
 // resulting upper extent and must not reconstruct member offsets itself.
 #let chord-note-step(note-head-width) = {
@@ -134,12 +202,21 @@
   }
 }
 
-#let chord-upper-clearance(member, note-head-width) = {
+#let chord-upper-dot-clearance(member, note-head-width) = {
   if member.octave-up > 0 {
     chord-octave-dots-height(member.octave-up, note-head-width) + chord-dot-offset(note-head-width)
   } else {
     0pt
   }
+}
+
+
+#let chord-upper-clearance(member, note-head-width) = {
+  notation-marked-upper-height(
+    member,
+    chord-upper-dot-clearance(member, note-head-width),
+    note-head-width,
+  )
 }
 
 #let chord-member-offset(note, index, note-head-width) = {
@@ -159,13 +236,10 @@
   if note.kind == "chord" {
     let height = 0pt
     for (index, member) in note.members.enumerate() {
-      if index > 0 {
-        let dot-height = chord-octave-dots-height(member.octave-up, note-head-width)
-        height = calc.max(
-          height,
-          chord-member-offset(note, index, note-head-width) + dot-height + if dot-height > 0pt { chord-dot-offset(note-head-width) } else { 0pt },
-        )
-      }
+      height = calc.max(
+        height,
+        chord-member-offset(note, index, note-head-width) + chord-upper-clearance(member, note-head-width),
+      )
     }
     height
   } else {
@@ -192,6 +266,11 @@
         ])
       ]
     }
+    #notation-marks-above(
+      member,
+      chord-upper-dot-clearance(member, note-head-width),
+      note-head-width,
+    )
   ]
 }
 
@@ -201,6 +280,13 @@
     #align(center)[
       #accidental-head(root, note-text(root), note-text(root), note-head-width)
     ]
+    // The root's octave dots live in the row-level dot layer, but member
+    // symbols still start above that same intrinsic pitch extent.
+    #notation-marks-above(
+      root,
+      chord-upper-dot-clearance(root, note-head-width),
+      note-head-width,
+    )
     #for index in range(1, note.members.len()) {
       place(top, dy: -chord-member-offset(note, index, note-head-width))[
         #chord-member-head(note.members.at(index), note-head-width)
@@ -310,7 +396,6 @@
   let dot-gap = layers-metrics.dot-gap
   let member-width = grace-member-width(note-head-width)
   let member-gap = grace-member-gap(note-head-width)
-  let max-up = note.members.fold(0, (count, member) => calc.max(count, member.octave-up))
   let max-down = note.members.fold(0, (count, member) => calc.max(count, member.octave-down))
   // Like ordinary beams, grace beams follow the note heads rather than their
   // duration boxes. The reduced head size determines both end padding and
@@ -320,7 +405,13 @@
   let last-center = if note.members.len() > 0 { grace-member-center-offset(note, note.members.len() - 1, note-head-width) } else { 0pt }
   let beam-left = first-center - member-width / 2
   let beam-width = if note.members.len() <= 1 { member-width } else { last-center - first-center + member-width }
-  let upper-height = octave-dots-height(max-up, dot-radius: dot-radius, dot-gap: dot-gap)
+  let upper-height = note.members.fold(0pt, (height, member) => {
+    let dot-height = octave-dots-height(member.octave-up, dot-radius: dot-radius, dot-gap: dot-gap)
+    calc.max(
+      height,
+      notation-marked-upper-height(member, dot-height, member-width),
+    )
+  })
   let lower-height = octave-dots-height(max-down, dot-radius: dot-radius, dot-gap: dot-gap)
   let layer-gap = layers-metrics.layer-gap
   let beam-thickness = layers-metrics.beam-thickness
@@ -328,14 +419,29 @@
     ..note.members.map(member => grace-member-slot(
       member,
       note-head-width,
-      octave-dot-slot(
-        member.octave-up,
-        member-width,
-        height: upper-height,
-        valign: bottom,
-        dot-radius: dot-radius,
-        dot-gap: dot-gap,
-      ),
+      {
+        let member-dot-height = octave-dots-height(member.octave-up, dot-radius: dot-radius, dot-gap: dot-gap)
+        box(width: member-width, height: upper-height)[
+          #place(top + center)[
+            #octave-dot-slot(
+              member.octave-up,
+              member-width,
+              height: upper-height,
+              valign: bottom,
+              dot-radius: dot-radius,
+              dot-gap: dot-gap,
+            )
+          ]
+          #if member.marks.len() > 0 {
+            place(
+              bottom + center,
+              dy: -member-dot-height - notation-mark-gap(member-width),
+            )[
+              #notation-mark-stack(member, member-width)
+            ]
+          }
+        ]
+      },
     )),
   )
   let digit-layer = stack(dir: ltr, spacing: member-gap,
