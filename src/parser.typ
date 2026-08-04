@@ -291,6 +291,34 @@
   } else { parse-note(token, quarter-width, eighth-width, short-width, compact: compact) }
 }
 
+#let add-harmonic-mark(note) = {
+  if note.marks.any(mark => mark.name == "harmonic") {
+    note
+  } else {
+    note + (
+      marks: note.marks + (notation-symbol-data("sym.harmonic", note.marks.len()),),
+    )
+  }
+}
+
+#let apply-harmonic-scope(event) = {
+  if event.kind == "chord" or event.kind == "grace" {
+    // Combination-level shorthand means every concrete member, not one mark
+    // above the complete chord or grace group.
+    event + (
+      members: event.members.map(member => {
+        if member.pitch >= 1 and member.pitch <= 7 { add-harmonic-mark(member) } else { member }
+      }),
+    )
+  } else if event.pitch >= 1 and event.pitch <= 7 {
+    add-harmonic-mark(event)
+  } else {
+    // Rests, percussion X, and extension strokes remain unmarked even inside
+    // the scope; only numbered pitches 1–7 receive automatic harmonics.
+    event
+  }
+}
+
 #let parse-tuplet(token, id, quarter-width, eighth-width, short-width, sort-chords: true, compact: false) = {
   let opening = token.split("[")
   assert(opening.len() >= 2, message: "tuplet must use tN[...] format")
@@ -349,10 +377,13 @@
   let repeat = none
   let alternative = none
   let tuplet-id = 0
+  let structures = ()
+  let harmonic-depth = 0
 
   for token in tokens {
     let repeat-open = token.starts-with("r") and token.ends-with("{")
     let alternative-open = token.starts-with("a") and token.ends-with("{")
+    let harmonic-open = token == "harmonic{"
 
     if token == "|" {
       if current.len() > 0 {
@@ -377,6 +408,7 @@
       let count = if count-source == "" { 2 } else { int(count-source) }
       assert(count >= 2, message: "repeat count must be at least 2")
       repeat = (count: count, start: measures.len(), alternatives: ())
+      structures.push("repeat")
     } else if alternative-open {
       assert(repeat != none and alternative == none, message: "an alternative ending must be inside a repeat block")
       if current.len() > 0 {
@@ -384,8 +416,17 @@
         current = ()
       }
       alternative = (label: token.slice(1, token.len() - 1), start: measures.len())
+      structures.push("alternative")
+    } else if harmonic-open {
+      harmonic-depth += 1
+      structures.push("harmonic")
     } else if token == "}" {
-      if alternative != none {
+      assert(structures.len() > 0, message: "unexpected structural closing brace")
+      let structure = structures.pop()
+      if structure == "harmonic" {
+        harmonic-depth -= 1
+      } else if structure == "alternative" {
+        assert(alternative != none, message: "unexpected alternative closing brace")
         if current.len() > 0 {
           measures.push(plain-measure(current, true))
           current = ()
@@ -395,7 +436,7 @@
         repeat = repeat + (alternatives: repeat.alternatives + (finished,))
         alternative = none
       } else {
-        assert(repeat != none, message: "unexpected structural closing brace")
+        assert(structure == "repeat" and repeat != none, message: "unexpected repeat closing brace")
         if current.len() > 0 {
           measures.push(plain-measure(current, true))
           current = ()
@@ -406,13 +447,19 @@
       }
     } else if token.starts-with("t") and token.contains("[") {
       let members = parse-tuplet(token, tuplet-id, quarter-width, eighth-width, short-width, sort-chords: sort-chords, compact: compact)
-      for member in members { current.push(member) }
+      for member in members {
+        current.push(if harmonic-depth > 0 { apply-harmonic-scope(member) } else { member })
+      }
       tuplet-id += 1
     } else {
-      current.push(parse-event(token, quarter-width, eighth-width, short-width, sort-chords: sort-chords, compact: compact))
+      let event = parse-event(token, quarter-width, eighth-width, short-width, sort-chords: sort-chords, compact: compact)
+      current.push(if harmonic-depth > 0 { apply-harmonic-scope(event) } else { event })
     }
   }
-  assert(repeat == none and alternative == none, message: "unclosed repeat or alternative block")
+  assert(
+    repeat == none and alternative == none and harmonic-depth == 0 and structures.len() == 0,
+    message: "unclosed repeat, alternative, or harmonic block",
+  )
   if current.len() > 0 { measures.push(plain-measure(current, false)) }
 
   let enriched = ()
