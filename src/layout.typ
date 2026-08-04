@@ -2,6 +2,7 @@
 
 #import "glyphs.typ": *
 #import "links.typ": *
+#import "geometry.typ": minimum-line-thickness, minimum-mark-text-factor, notation-size-from-head-width
 
 // Complete row-level vertical analysis before painting any measure so every
 // measure shares one digit baseline and one upper reservation.
@@ -367,7 +368,7 @@
   bar-width: 5pt,
   bar-gap: 6pt,
   beam-note-width: 12pt,
-  beam-thickness: 0.8pt,
+  beam-thickness: minimum-line-thickness,
 ) = {
   let index = 0
   let count = measure.notes.len()
@@ -537,7 +538,7 @@
   bar-gap: 6pt,
   beam-gap: 2pt,
   beam-note-width: 12pt,
-  beam-thickness: 0.8pt,
+  beam-thickness: minimum-line-thickness,
   dot-radius: 0.7pt,
   dot-gap: 0.6pt,
   upper-dot-height: 0pt,
@@ -691,7 +692,8 @@
 #let render-volta-fragment(fragment, note-head-width, thickness) = context {
   let label = format-volta-label(fragment.label)
   let label-offset-y = note-head-width * 0.12
-  let label-body = text(font: "Libertinus Serif", size: note-head-width * 1.05, weight: "regular")[#label]
+  let minimum-label-size = notation-size-from-head-width(note-head-width) * minimum-mark-text-factor
+  let label-body = text(font: "Libertinus Serif", size: calc.max(note-head-width * 1.05, minimum-label-size), weight: "regular")[#label]
   // Derive the hook from the actual label box instead of estimating it from
   // the note size. This also covers wider labels such as `1, 2.` consistently.
   let hook = label-offset-y + measure(label-body).height
@@ -778,7 +780,7 @@
   bar-gap: 6pt,
   beam-gap: 2pt,
   beam-note-width: 12pt,
-  beam-thickness: 0.8pt,
+  beam-thickness: minimum-line-thickness,
   dot-radius: 0.7pt,
   dot-gap: 0.6pt,
   link-fragments: none,
@@ -827,10 +829,11 @@
     )
   }
   for link in notation-links {
-    let base-height = notation-link-base-height(link, note-positions, beam-note-width)
+    let base-height = notation-link-base-height(link, note-positions, line-width, beam-note-width)
+    let shape = notation-link-shape(link, note-positions, line-width, base-height, beam-note-width, dot-radius, dot-gap, endpoint-clearance)
     max-link-arc-height = calc.max(
       max-link-arc-height,
-      notation-link-arc-height(link, note-positions, line-width, base-height, beam-note-width, dot-radius, dot-gap, beam-gap, endpoint-clearance),
+      shape.height + shape.shift,
     )
   }
   let link-upper-reserve = if notation-links.len() > 0 { max-link-obstacle-height + max-link-arc-height + endpoint-clearance + beam-note-width * 0.14 } else { 0pt }
@@ -894,22 +897,22 @@
     // changing measure widths or the note/beam alignment underneath.
     #for link in notation-links {
       let span = row-link-span(link, note-positions, line-width, beam-note-width)
-      let base-arc-height = notation-link-base-height(link, note-positions, beam-note-width)
-      let arc-height = notation-link-arc-height(link, note-positions, line-width, base-arc-height, beam-note-width, dot-radius, dot-gap, beam-gap, endpoint-clearance)
+      let base-arc-height = notation-link-base-height(link, note-positions, line-width, beam-note-width)
+      let shape = notation-link-shape(link, note-positions, line-width, base-arc-height, beam-note-width, dot-radius, dot-gap, endpoint-clearance)
       // Use the same clearance above a digit or its upper-dot stack. This
       // keeps unmarked endpoints from appearing noticeably tighter.
       let digit-endpoint = upper-dot-height - endpoint-clearance
       let start-upper-height = if span.start == none { 0pt } else { notation-link-item-upper-height(span.start, beam-note-width, dot-radius, dot-gap) }
       let end-upper-height = if span.end == none { 0pt } else { notation-link-item-upper-height(span.end, beam-note-width, dot-radius, dot-gap) }
-      let start-y = if start-upper-height > 0pt { upper-dot-height - start-upper-height - endpoint-clearance } else { digit-endpoint }
-      let end-y = if end-upper-height > 0pt { upper-dot-height - end-upper-height - endpoint-clearance } else { digit-endpoint }
+      let start-y = (if start-upper-height > 0pt { upper-dot-height - start-upper-height - endpoint-clearance } else { digit-endpoint }) - shape.start-lift - shape.shift
+      let end-y = (if end-upper-height > 0pt { upper-dot-height - end-upper-height - endpoint-clearance } else { digit-endpoint }) - shape.end-lift - shape.shift
       place(top + left, dx: span.left)[
         #if span.start != none and span.end != none {
-          notation-arc(span.width, start-y, end-y, arc-height)
+          notation-arc(span.width, start-y, end-y, shape.height)
         } else if span.start != none {
-          notation-open-arc(span.width, start-y, arc-height, "outgoing")
+          notation-open-arc(span.width, start-y, shape.height, "outgoing")
         } else if span.end != none {
-          notation-open-arc(span.width, end-y, arc-height, "incoming")
+          notation-open-arc(span.width, end-y, shape.height, "incoming")
         } else {
           notation-through-arc(span.width, beam-note-width * 0.16, beam-note-width * 0.08)
         }
@@ -941,9 +944,9 @@
         let span = row-link-span(link, note-positions, line-width, beam-note-width)
         let fragment-right = fragment.x + fragment.width
         if span.left <= fragment-right and span.right >= fragment.x {
-          let base-height = notation-link-base-height(link, note-positions, beam-note-width)
-          let arc-height = notation-link-arc-height(link, note-positions, line-width, base-height, beam-note-width, dot-radius, dot-gap, beam-gap, endpoint-clearance)
-          link-clearance = calc.max(link-clearance, arc-height + endpoint-clearance)
+          let base-height = notation-link-base-height(link, note-positions, line-width, beam-note-width)
+          let shape = notation-link-shape(link, note-positions, line-width, base-height, beam-note-width, dot-radius, dot-gap, endpoint-clearance)
+          link-clearance = calc.max(link-clearance, shape.height + shape.shift + endpoint-clearance)
         }
       }
       let endpoint-y = upper-dot-height - local-obstacle - endpoint-clearance - link-clearance
@@ -954,7 +957,8 @@
           tuplet-arc-height,
           fragment.number,
           beam-note-width,
-          thickness: beam-thickness * 0.72,
+          // Tuplet curves use the same relative stroke as duration beams.
+          thickness: beam-thickness,
         )
       ]
     }

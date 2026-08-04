@@ -1,5 +1,17 @@
 // Internal dimensions derived from the requested notation size.
 
+// Every independently visible rule uses at least this relative stroke. Filled
+// shapes may still use a thinner auxiliary outline because their body already
+// supplies the visible weight.
+#let minimum-line-thickness = 0.04em
+#let minimum-line-thickness-factor = 0.04
+
+// The repeat-count label (`×3`, etc.) establishes the smallest readable size
+// for textual marks above the notation. Note digits and musical symbols are
+// not annotations and therefore do not use this floor.
+#let minimum-mark-text-size = 0.72em
+#let minimum-mark-text-factor = 0.72
+
 #let note-layer-metrics(
   size,
   dot-scale: 1.0,
@@ -8,7 +20,7 @@
 ) = (
   dot-radius: size * 0.075 * dot-scale,
   dot-gap: size * 0.12 * dot-scale,
-  beam-thickness: size * 0.04 * beam-scale,
+  beam-thickness: calc.max(size * 0.04 * beam-scale, size * minimum-line-thickness-factor),
   layer-gap: size * layer-gap-factor,
 )
 

@@ -609,29 +609,79 @@
 
 #let notation-link-item-upper-height(item, note-head-width, dot-radius, dot-gap) = {
   if item.grace {
-    grace-lift(note-head-width) + grace-octave-extra(item.grace-parent, note-head-width) + grace-link-clearance(note-head-width)
+    let layers-metrics = grace-layer-metrics(note-head-width)
+    let max-down = item.grace-parent.members.fold(0, (count, member) => calc.max(count, member.octave-down))
+    let lower-height = octave-dots-height(max-down, dot-radius: layers-metrics.dot-radius, dot-gap: layers-metrics.dot-gap)
+    let member-upper-height = octave-dots-height(item.note.octave-up, dot-radius: layers-metrics.dot-radius, dot-gap: layers-metrics.dot-gap)
+    // Lower dots lift the complete grace group, but upper dots only enlarge
+    // their own member. Applying the group's maximum upper stack here made
+    // every member look equally tall and forced long inner slurs too high.
+    grace-lift(note-head-width) + lower-height + member-upper-height + grace-link-clearance(note-head-width)
   } else {
     notation-link-upper-height(item.note, note-head-width, dot-radius, dot-gap)
   }
 }
 
 // Filled ribbons provide rounded musical endpoints and full-width flat system
-// cuts. Collision calculations below operate on their center curves.
+// cuts. Collision calculations below operate on the unchanged center curves.
+#let notation-link-max-slope = 0.32
+
+#let notation-limit-endpoint-slope(width, start-y, end-y) = {
+  let max-delta = width * notation-link-max-slope
+  let delta-y = end-y - start-y
+  if delta-y > max-delta {
+    // Raise only the lower endpoint. Moving a slur away from a note is safe;
+    // lowering the opposite endpoint would consume its required clearance.
+    (start-y: start-y, end-y: start-y + max-delta)
+  } else if delta-y < -max-delta {
+    (start-y: end-y + max-delta, end-y: end-y)
+  } else {
+    (start-y: start-y, end-y: end-y)
+  }
+}
+
+#let notation-control-geometry(width, start-y, end-y, lift) = {
+  let delta-y = end-y - start-y
+  let slope = delta-y / width
+  let stretch = calc.sqrt(1 + slope * slope)
+  let tangent-x = 1 / stretch
+  let tangent-y = slope / stretch
+  let normal-x = tangent-y
+  let normal-y = -tangent-x
+  let indent = width * stretch * 0.20
+  (
+    first: (
+      tangent-x * indent + normal-x * lift,
+      start-y + tangent-y * indent + normal-y * lift,
+    ),
+    second: (
+      width - tangent-x * indent + normal-x * lift,
+      end-y - tangent-y * indent + normal-y * lift,
+    ),
+    tangent-x: tangent-x,
+  )
+}
+
 #let notation-arc(width, start-y, end-y, height, thickness: 0.08em) = {
-  let top-y = calc.min(start-y, end-y) - height
-  let outer-y = top-y - thickness / 2
-  let inner-y = top-y + thickness / 2
-  let end-radius = thickness * 0.275
-  let cap-control = end-radius * 4 / 3
+  let outer = notation-control-geometry(width, start-y, end-y, height + thickness / 2)
+  let inner = notation-control-geometry(width, start-y, end-y, height - thickness / 2)
   curve(
     fill: black,
-    curve.move((0pt, start-y - end-radius)),
-    curve.cubic((width * 0.28, outer-y), (width * 0.72, outer-y), (width, end-y - end-radius)),
-    curve.cubic((width + cap-control, end-y - end-radius), (width + cap-control, end-y + end-radius), (width, end-y + end-radius)),
-    // The return boundary stays lower, while semicircular end caps preserve a
-    // small initial width instead of tapering all the way to a sharp point.
-    curve.cubic((width * 0.72, inner-y), (width * 0.28, inner-y), (0pt, start-y + end-radius)),
-    curve.cubic((-cap-control, start-y + end-radius), (-cap-control, start-y - end-radius), (0pt, start-y - end-radius)),
+    stroke: (paint: black, thickness: thickness * 0.18, cap: "round", join: "round"),
+    curve.move((0pt, start-y)),
+    // As in LilyPond, both boundaries share the musical endpoints. Only the
+    // middle controls are offset around the center curve, so the ribbon grows
+    // smoothly from a rounded tip to full thickness near its middle.
+    curve.cubic(
+      outer.first,
+      outer.second,
+      (width, end-y),
+    ),
+    curve.cubic(
+      inner.second,
+      inner.first,
+      (0pt, start-y),
+    ),
     curve.close(mode: "straight"),
   )
 }
@@ -640,27 +690,25 @@
   let peak-y = endpoint-y - height
   let outer-y = peak-y - thickness / 2
   let inner-y = peak-y + thickness / 2
-  let end-radius = thickness * 0.275
-  let cap-control = end-radius * 4 / 3
   if direction == "outgoing" {
     curve(
       fill: black,
-      curve.move((0pt, endpoint-y - end-radius)),
-      curve.cubic((width * 0.28, outer-y), (width * 0.72, outer-y), (width, outer-y)),
+      stroke: (paint: black, thickness: thickness * 0.18, cap: "round", join: "round"),
+      curve.move((0pt, endpoint-y)),
+      curve.cubic((width * 0.20, outer-y), (width * 0.80, outer-y), (width, outer-y)),
       // A system boundary is a cut through a continuing ribbon, not a musical
       // endpoint, so retain full thickness and close it with a flat edge.
       curve.line((width, inner-y)),
-      curve.cubic((width * 0.72, inner-y), (width * 0.28, inner-y), (0pt, endpoint-y + end-radius)),
-      curve.cubic((-cap-control, endpoint-y + end-radius), (-cap-control, endpoint-y - end-radius), (0pt, endpoint-y - end-radius)),
+      curve.cubic((width * 0.80, inner-y), (width * 0.20, inner-y), (0pt, endpoint-y)),
       curve.close(mode: "straight"),
     )
   } else {
     curve(
       fill: black,
+      stroke: (paint: black, thickness: thickness * 0.18, cap: "round", join: "round"),
       curve.move((0pt, outer-y)),
-      curve.cubic((width * 0.28, outer-y), (width * 0.72, outer-y), (width, endpoint-y - end-radius)),
-      curve.cubic((width + cap-control, endpoint-y - end-radius), (width + cap-control, endpoint-y + end-radius), (width, endpoint-y + end-radius)),
-      curve.cubic((width * 0.72, inner-y), (width * 0.28, inner-y), (0pt, inner-y)),
+      curve.cubic((width * 0.20, outer-y), (width * 0.80, outer-y), (width, endpoint-y)),
+      curve.cubic((width * 0.80, inner-y), (width * 0.20, inner-y), (0pt, inner-y)),
       curve.line((0pt, outer-y)),
       curve.close(mode: "straight"),
     )
@@ -673,10 +721,11 @@
   let inner-y = top-y + thickness / 2
   curve(
     fill: black,
+    stroke: (paint: black, thickness: thickness * 0.18, cap: "round", join: "round"),
     curve.move((0pt, baseline-y - thickness / 2)),
-    curve.cubic((width * 0.28, outer-y), (width * 0.72, outer-y), (width, baseline-y - thickness / 2)),
+    curve.cubic((width * 0.20, outer-y), (width * 0.80, outer-y), (width, baseline-y - thickness / 2)),
     curve.line((width, baseline-y + thickness / 2)),
-    curve.cubic((width * 0.72, inner-y), (width * 0.28, inner-y), (0pt, baseline-y + thickness / 2)),
+    curve.cubic((width * 0.80, inner-y), (width * 0.20, inner-y), (0pt, baseline-y + thickness / 2)),
     curve.line((0pt, baseline-y - thickness / 2)),
     curve.close(mode: "straight"),
   )
@@ -689,23 +738,33 @@
   else { "through" }
 }
 
-#let notation-link-base-height(link, positions, note-head-width) = {
-  let touches-grace = (link.start != none and positions.at(link.start).grace) or (link.end != none and positions.at(link.end).grace)
-  if link.kind == "tie" { note-head-width * 0.42 }
-  else if touches-grace { note-head-width * 0.30 }
-  else { note-head-width * 0.68 }
+#let notation-link-base-height(link, positions, line-width, note-head-width) = {
+  let inset = if link.kind == "tie" { note-head-width * 0.24 } else { note-head-width * 0.10 }
+  let boundary-inset = note-head-width * 0.12
+  let start-x = if link.start == none { boundary-inset } else { positions.at(link.start).x + inset }
+  let end-x = if link.end == none { line-width - boundary-inset } else { positions.at(link.end).x - inset }
+  let span = calc.max(end-x - start-x, note-head-width * 0.2)
+  let span-ratio = span / note-head-width
+  let growth = calc.max(span-ratio - 2, 0)
+  // Tie and slur share one saturating growth model. As in LilyPond, ties
+  // approach a lower height limit more quickly, while slurs may grow higher.
+  let ceiling = if link.kind == "tie" { 0.56 } else { 1.0 }
+  let response = if link.kind == "tie" { 4.5 } else { 6 }
+  let factor = 0.30 + (ceiling - 0.30) * growth / (growth + response)
+  note-head-width * factor
 }
 
-// Find the smallest arch that clears every covered obstacle. Raising the whole
-// curve preserves a smooth shape and avoids feature-specific detours.
-#let notation-required-height(mode, t, start-y, end-y, obstacle-y) = {
+// Evaluate the center curve while keeping its rise independent from collision
+// avoidance. Obstacles should move this stable shape, not keep bending it.
+#let notation-curve-y(mode, t, width, start-y, end-y, height) = {
   let one-minus = 1 - t
   let base-y = 0pt
   let coefficient = 0.0
   if mode == "complete" {
-    let control-y = calc.min(start-y, end-y)
-    base-y = one-minus * one-minus * one-minus * start-y + 3 * one-minus * one-minus * t * control-y + 3 * one-minus * t * t * control-y + t * t * t * end-y
-    coefficient = 3 * t * one-minus
+    let controls = notation-control-geometry(width, start-y, end-y, height)
+    let control-one = controls.first
+    let control-two = controls.second
+    base-y = one-minus * one-minus * one-minus * start-y + 3 * one-minus * one-minus * t * control-one.at(1) + 3 * one-minus * t * t * control-two.at(1) + t * t * t * end-y
   } else if mode == "outgoing" {
     base-y = start-y
     coefficient = 1 - one-minus * one-minus * one-minus
@@ -713,10 +772,10 @@
     base-y = end-y
     coefficient = 1 - t * t * t
   }
-  if coefficient <= 0.001 { 0pt } else { calc.max((base-y - obstacle-y) / coefficient, 0pt) }
+  if mode == "complete" { base-y } else { base-y - coefficient * height }
 }
 
-#let notation-link-arc-height(
+#let notation-link-shape(
   link,
   positions,
   line-width,
@@ -724,11 +783,10 @@
   note-head-width,
   dot-radius,
   dot-gap,
-  beam-gap,
   clearance,
 ) = {
   let mode = notation-link-mode(link)
-  if mode == "through" { return base-height }
+  if mode == "through" { return (height: base-height, shift: 0pt, start-lift: 0pt, end-lift: 0pt) }
   let inset = if link.kind == "tie" { note-head-width * 0.24 } else { note-head-width * 0.10 }
   let boundary-inset = note-head-width * 0.12
   let start-item = if link.start == none { none } else { positions.at(link.start) }
@@ -740,21 +798,72 @@
   let end-upper = if end-item == none { 0pt } else { notation-link-item-upper-height(end-item, note-head-width, dot-radius, dot-gap) }
   let start-y = -start-upper - clearance
   let end-y = -end-upper - clearance
+  let limited-endpoints = if mode == "complete" {
+    notation-limit-endpoint-slope(width, start-y, end-y)
+  } else {
+    (start-y: start-y, end-y: end-y)
+  }
+  let start-lift = start-y - limited-endpoints.start-y
+  let end-lift = end-y - limited-endpoints.end-y
+  start-y = limited-endpoints.start-y
+  end-y = limited-endpoints.end-y
   let first = if link.start == none { 0 } else { link.start + 1 }
   let last = if link.end == none { positions.len() - 1 } else { link.end - 1 }
+  let close-to-edge = note-head-width * 0.78
   let height = base-height
 
   if first <= last {
     for index in range(first, last + 1) {
       let item = positions.at(index)
+      // An obstacle beside an endpoint should be cleared by the endpoint
+      // slope itself. Letting it control the global bulge over-lifts long
+      // grace slurs, especially when the penultimate member has octave dots.
+      if item.x - start-x < close-to-edge or end-x - item.x < close-to-edge { continue }
       let t = calc.clamp((item.x - start-x) / width, 0.0, 1.0)
       let upper = notation-link-item-upper-height(item, note-head-width, dot-radius, dot-gap)
-      let obstacle-top = if upper > 0pt { -upper } else { beam-gap }
-      let required = notation-required-height(mode, t, start-y, end-y, obstacle-top - clearance)
-      height = calc.max(height, required)
+      // `0pt` is the digit's actual top edge in this local coordinate system.
+      // Octave dots extend that edge upward; both then receive the same
+      // clearance. The old `beam-gap` fallback started inside the digit box
+      // and consequently made plain numerals avoid less aggressively.
+      let obstacle-top = -upper
+      let zero-height-y = notation-curve-y(mode, t, width, start-y, end-y, 0pt)
+      let one-minus = 1 - t
+      let coefficient = if mode == "complete" {
+        let controls = notation-control-geometry(width, start-y, end-y, 0pt)
+        controls.tangent-x * 3 * t * one-minus
+      } else if mode == "outgoing" {
+        1 - one-minus * one-minus * one-minus
+      } else {
+        1 - t * t * t
+      }
+      if coefficient > 0.001 {
+        let required = (zero-height-y - (obstacle-top - clearance)) / coefficient
+        height = calc.max(height, required)
+      }
     }
   }
-  height
+  // Curvature may respond to obstacles, but an unlimited value degenerates
+  // into a semicircle around high grace groups. Apply the same cap to every
+  // tie/slur, then use translation only for the remaining clearance.
+  let capped-height = calc.min(height, base-height * 2.25)
+  let shift = 0pt
+  if first <= last {
+    for index in range(first, last + 1) {
+      let item = positions.at(index)
+      if item.x - start-x < close-to-edge or end-x - item.x < close-to-edge { continue }
+      let t = calc.clamp((item.x - start-x) / width, 0.0, 1.0)
+      let upper = notation-link-item-upper-height(item, note-head-width, dot-radius, dot-gap)
+      let obstacle-top = -upper
+      let curve-y = notation-curve-y(mode, t, width, start-y, end-y, capped-height)
+      shift = calc.max(shift, curve-y - (obstacle-top - clearance))
+    }
+  }
+  (
+    height: capped-height,
+    shift: calc.max(shift, 0pt),
+    start-lift: start-lift,
+    end-lift: end-lift,
+  )
 }
 
 // Grace-to-main ornamental curves remain independent of slur/tie ribbons even

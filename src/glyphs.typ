@@ -1,6 +1,6 @@
 // Local notation glyphs and their intrinsic geometry.
 
-#import "geometry.typ": note-layer-metrics, notation-size-from-head-width
+#import "geometry.typ": minimum-line-thickness, minimum-mark-text-factor, note-layer-metrics, notation-size-from-head-width
 
 #let note-text(note) = {
   // The rendered head is currently the first character. Suffixes are parsed
@@ -74,7 +74,7 @@
   note.raw.at(0) == "-"
 }
 
-#let extension-line(length: 0.72em, thickness: 0.08em) = {
+#let extension-line(length: 0.72em, thickness: 0.08em) = context {
   // Do not use the font's hyphen/minus glyph for extension notes: it is too
   // short and sits on the text baseline. Keep the drawn rule out of layout:
   // otherwise a measure containing `-` gets a different vertical baseline.
@@ -409,16 +409,16 @@
   }
 }
 
-#let beam-line(length: 0.7em, thickness: 0.8pt) = {
+#let beam-line(length: 0.7em, thickness: minimum-line-thickness) = context {
   line(length: length, stroke: thickness)
 }
 
-#let tuplet-mark(width, endpoint-y, arc-height, number, note-head-width, thickness: 0.6pt) = context {
+#let tuplet-mark(width, endpoint-y, arc-height, number, note-head-width, thickness: minimum-line-thickness) = context {
   let label = text(
-    font: "New Computer Modern",
-    size: note-head-width * 0.82,
+    font: "Libertinus Serif",
+    size: notation-size-from-head-width(note-head-width) * minimum-mark-text-factor,
     style: "italic",
-    weight: "bold",
+    weight: "regular",
   )[#number]
   let label-size = measure(label)
   let label-gap = note-head-width * 0.16
