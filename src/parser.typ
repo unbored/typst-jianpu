@@ -50,6 +50,43 @@
   attached
 }
 
+#let square-group-start(token) = {
+  let note-group = token.starts-with("c[") or token.starts-with("g[") or token.starts-with("g<[")
+  note-group or (token.starts-with("t") and token.contains("["))
+}
+
+#let square-bracket-balance(token) = {
+  token.split("[").len() - token.split("]").len()
+}
+
+#let merge-square-groups(raw-tokens) = {
+  let tokens = ()
+  let compound = none
+  let depth = 0
+  for token in raw-tokens {
+    if compound != none {
+      compound += " " + token
+      depth += square-bracket-balance(token)
+      if depth == 0 {
+        tokens.push(compound)
+        compound = none
+      }
+    } else if square-group-start(token) and square-bracket-balance(token) > 0 {
+      compound = token
+      depth = square-bracket-balance(token)
+    } else {
+      tokens.push(token)
+    }
+  }
+  if compound != none { tokens.push(compound) }
+  tokens
+}
+
+#let note-group-tokens(source) = {
+  let raw-tokens = source.split(" ").filter(token => token != "")
+  attach-standalone-link-marks(merge-square-groups(raw-tokens))
+}
+
 #let first-octave-direction(token) = {
   for character in token {
     if character == "'" { return "up" }
@@ -94,6 +131,7 @@
     // leading column. Neither side changes the main head's own coordinates.
     leading-width: accidental-leading-width(accidental-data.kind, short-width),
     min-width: base-width, trailing-width: base-width * dots * 0.5,
+    tuplet: none,
     slur-start: slur-start-count(token), slur-end: slur-end-count(token), tie-start: tie-start-count(token),
   )
 }
@@ -115,6 +153,7 @@
     accidental: root.accidental,
     leading-width: members.fold(0pt, (width, member) => calc.max(width, member.leading-width)),
     min-width: duration.min-width, trailing-width: duration.trailing-width,
+    tuplet: none,
     slur-start: duration.slur-start, slur-end: duration.slur-end, tie-start: duration.tie-start,
   )
 }
@@ -135,6 +174,7 @@
     raw: token, kind: "grace", members: members, direction: direction,
     beams: 0, dots: if members.len() > 0 { members.at(0).dots } else { 0 }, pitch: 0, octave: 0, relative-pitch: 0,
     octave-up: 0, octave-down: 0, accidental: none, leading-width: 0pt, trailing-width: 0pt,
+    tuplet: none,
     slur-start: slur-start-count(outer-suffix), slur-end: slur-end-count(outer-suffix), tie-start: tie-start-count(outer-suffix),
     // The rendered group uses 0.54em member boxes and 0.12em internal gaps.
     // Duration boxes may be wider, but the event must never be narrower than
@@ -154,6 +194,37 @@
   } else { parse-note(token, quarter-width, eighth-width, short-width, compact: compact) }
 }
 
+#let parse-tuplet(token, id, quarter-width, eighth-width, short-width, sort-chords: true, compact: false) = {
+  let opening = token.split("[")
+  assert(opening.len() >= 2, message: "tuplet must use tN[...] format")
+  let number-source = opening.at(0).slice(1)
+  assert(number-source != "", message: "tuplet number is required")
+  let number = int(number-source)
+  assert(number >= 2, message: "tuplet number must be at least 2")
+
+  // The last closing bracket belongs to the tuplet itself; earlier brackets
+  // may belong to chord or grace members nested inside the group.
+  let after-opening = opening.slice(1).join("[")
+  let closing = after-opening.split("]")
+  assert(closing.len() >= 2, message: "unclosed tuplet group")
+  let suffix = closing.at(closing.len() - 1)
+  let body = closing.slice(0, closing.len() - 1).join("]")
+  assert(not body.contains("|"), message: "tuplets cannot cross a barline yet")
+  assert(suffix.replace("/", "") == "", message: "a tuplet group suffix may contain duration slashes only")
+
+  let member-tokens = note-group-tokens(body)
+  assert(member-tokens.len() >= 2, message: "a tuplet must contain at least two events")
+  assert(not member-tokens.any(member => member.starts-with("t") and member.contains("[")), message: "nested tuplets are not supported yet")
+  if suffix != "" {
+    assert(not member-tokens.any(member => strip-link-marks(member).contains("/")), message: "do not mix member durations with a tuplet group suffix")
+  }
+
+  member-tokens.enumerate().map(((index, member)) => {
+    let event = parse-event(member + suffix, quarter-width, eighth-width, short-width, sort-chords: sort-chords, compact: compact)
+    event + (tuplet: (id: id, number: number, index: index, count: member-tokens.len()),)
+  })
+}
+
 #let plain-measure(notes, bar) = (notes: notes, bar: bar, final-bar: false)
 
 #let parse-measures(tokens, quarter-width, eighth-width, short-width, sort-chords: true, final-bar: true, compact: false) = {
@@ -162,6 +233,7 @@
   let repeats = ()
   let repeat = none
   let alternative = none
+  let tuplet-id = 0
 
   for token in tokens {
     let repeat-open = token.starts-with("r") and token.ends-with("{")
@@ -217,6 +289,10 @@
         repeats.push(repeat + (end: measures.len() - 1))
         repeat = none
       }
+    } else if token.starts-with("t") and token.contains("[") {
+      let members = parse-tuplet(token, tuplet-id, quarter-width, eighth-width, short-width, sort-chords: sort-chords, compact: compact)
+      for member in members { current.push(member) }
+      tuplet-id += 1
     } else {
       current.push(parse-event(token, quarter-width, eighth-width, short-width, sort-chords: sort-chords, compact: compact))
     }
@@ -311,16 +387,7 @@
     .replace("}", " } ")
     .split(" ")
     .filter(token => token != "")
-  let tokens = ()
-  let compound = none
-  for token in raw-tokens {
-    if compound != none {
-      compound += " " + token
-      if token.contains("]") { tokens.push(compound); compound = none }
-    } else if (token.starts-with("c[") or token.starts-with("g[") or token.starts-with("g<[") ) and not token.contains("]") { compound = token }
-    else { tokens.push(token) }
-  }
-  if compound != none { tokens.push(compound) }
+  let tokens = merge-square-groups(raw-tokens)
 
   // Standalone LilyPond-style marks belong to the preceding event, so
   // `1 ( 2 )` and `1( 2)` produce the same parser input.

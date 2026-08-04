@@ -359,3 +359,48 @@
 #let beam-line(length: 0.7em, thickness: 0.8pt) = {
   line(length: length, stroke: thickness)
 }
+
+#let tuplet-mark(width, endpoint-y, arc-height, number, note-head-width, thickness: 0.6pt) = context {
+  let label = text(
+    font: "New Computer Modern",
+    size: note-head-width * 0.82,
+    style: "italic",
+    weight: "bold",
+  )[#number]
+  let label-size = measure(label)
+  let label-gap = note-head-width * 0.16
+  let gap-width = label-size.width + label-gap * 2
+  let left-end = calc.max(width / 2 - gap-width / 2, width * 0.2)
+  let right-start = calc.min(width / 2 + gap-width / 2, width * 0.8)
+  let peak-y = endpoint-y - arc-height
+
+  // Tuplet arcs are deliberately thinner and shallower than slurs. Two
+  // separate cubic segments leave a real central gap for the number.
+  box(width: width, height: 0pt)[
+    #place(top + left)[
+      #curve(
+        stroke: thickness,
+        fill: none,
+        curve.move((0pt, endpoint-y)),
+        curve.cubic((left-end * 0.28, peak-y), (left-end * 0.72, peak-y), (left-end, peak-y)),
+      )
+    ]
+    #place(top + left)[
+      #curve(
+        stroke: thickness,
+        fill: none,
+        curve.move((right-start, peak-y)),
+        curve.cubic(
+          (right-start + (width - right-start) * 0.28, peak-y),
+          (right-start + (width - right-start) * 0.72, peak-y),
+          (width, endpoint-y),
+        ),
+      )
+    ]
+    #place(
+      top + left,
+      dx: width / 2 - label-size.width / 2,
+      dy: peak-y - label-size.height * 0.62,
+    )[#label]
+  ]
+}

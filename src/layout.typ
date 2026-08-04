@@ -311,12 +311,28 @@
   base * (1 + note.dots * 0.5)
 }
 
+#let same-tuplet(left, right) = {
+  left.tuplet != none and right.tuplet != none and left.tuplet.id == right.tuplet.id
+}
+
 #let beam-quarter-groups(measure) = {
   let groups = ()
   let start = none
   let duration = 0.0
 
   for (index, note) in measure.notes.enumerate() {
+    let tuplet-start = note.tuplet != none and note.tuplet.index == 0
+    let tuplet-end = note.tuplet != none and note.tuplet.index == note.tuplet.count - 1
+    let joins-previous-tuplet = index > 0 and same-tuplet(measure.notes.at(index - 1), note)
+
+    // A tuplet is one visual beam group. Flush any preceding short notes, then
+    // suppress ordinary quarter-duration cuts until the tuplet itself ends.
+    if tuplet-start and start != none {
+      groups.push((start: start, end: index - 1))
+      start = none
+      duration = 0.0
+    }
+
     if note.beams <= 0 {
       if start != none { groups.push((start: start, end: index - 1)) }
       start = none
@@ -326,7 +342,7 @@
       if start == none {
         start = index
         duration = note-duration
-      } else if duration + note-duration > 1.0 {
+      } else if duration + note-duration > 1.0 and not joins-previous-tuplet {
         groups.push((start: start, end: index - 1))
         start = index
         duration = note-duration
@@ -334,7 +350,7 @@
         duration += note-duration
       }
 
-      if duration >= 1.0 {
+      if tuplet-end or (duration >= 1.0 and note.tuplet == none) {
         groups.push((start: start, end: index))
         start = none
         duration = 0.0
@@ -705,6 +721,65 @@
   ]
 }
 
+#let tuplet-endpoint-x(event-positions, index) = {
+  let item = event-positions.at(index)
+  if item.note.kind != "grace" {
+    item.x
+  } else {
+    // A boundary grace group ornaments a main note rather than becoming the
+    // visual endpoint itself, so reuse the same target search as grace links.
+    let target = grace-target-position(event-positions, index, item.note.direction)
+    if target == none { item.x } else { event-positions.at(target).x }
+  }
+}
+
+#let row-tuplet-fragments(event-positions, note-head-width) = {
+  let fragments = ()
+  for (index, item) in event-positions.enumerate() {
+    let tuplet = item.note.tuplet
+    if tuplet != none and tuplet.index == 0 {
+      let end-index = index + tuplet.count - 1
+      assert(end-index < event-positions.len(), message: "tuplet range exceeds the current row")
+      // Tuplet endpoints point vertically at the centers of the first and
+      // last main numerals. Boundary grace groups resolve to their targets.
+      let start-x = tuplet-endpoint-x(event-positions, index)
+      let end-x = tuplet-endpoint-x(event-positions, end-index)
+      fragments.push((
+        number: tuplet.number,
+        start-index: index,
+        end-index: end-index,
+        x: start-x,
+        width: calc.max(end-x - start-x, note-head-width * 0.2),
+      ))
+    }
+  }
+  fragments
+}
+
+#let tuplet-event-upper-height(item, note-head-width, dot-radius, dot-gap) = {
+  if item.note.kind == "grace" {
+    grace-lift(note-head-width) + grace-octave-extra(item.note, note-head-width) + grace-link-clearance(note-head-width)
+  } else {
+    notation-link-upper-height(item.note, note-head-width, dot-radius, dot-gap)
+  }
+}
+
+#let row-link-span(link, note-positions, line-width, note-head-width) = {
+  let start = if link.start == none { none } else { note-positions.at(link.start) }
+  let end = if link.end == none { none } else { note-positions.at(link.end) }
+  let inset = if link.kind == "tie" { note-head-width * 0.24 } else { note-head-width * 0.10 }
+  let boundary-inset = note-head-width * 0.12
+  let left = if start == none { boundary-inset } else { start.x + inset }
+  let right = if end == none { line-width - boundary-inset } else { end.x - inset }
+  (
+    start: start,
+    end: end,
+    left: left,
+    right: right,
+    width: calc.max(right - left, note-head-width * 0.2),
+  )
+}
+
 // Distribute remaining width, reserve shared vertical extents, then overlay
 // row-level slur/tie fragments above independently rendered measures.
 #let render-row(
@@ -739,8 +814,10 @@
   // Grace-to-main-note curves use row coordinates so their target may live in
   // the adjacent measure and the curve may pass through the intervening bar.
   let grace-targets = row-grace-targets(row, extra-gap, min-measure-gap, bar-width, bar-gap)
+  let event-positions = row-event-positions(row, extra-gap, min-measure-gap, bar-width, bar-gap)
   let note-positions = row-link-positions(row, extra-gap, min-measure-gap, bar-width, bar-gap, beam-note-width)
   let notation-links = if link-fragments == none { notation-links-from-items(note-positions) } else { link-fragments }
+  let tuplet-fragments = row-tuplet-fragments(event-positions, beam-note-width)
   let measure-spans = row-measure-spans(row, extra-gap, min-measure-gap, bar-width, bar-gap)
   let volta-fragments = row-volta-fragments(row, measure-spans, bar-width, bar-width * 0.22)
   let columns = ()
@@ -769,6 +846,12 @@
     )
   }
   let link-upper-reserve = if notation-links.len() > 0 { max-link-obstacle-height + max-link-arc-height + endpoint-clearance + beam-note-width * 0.14 } else { 0pt }
+  let tuplet-arc-height = beam-note-width * 0.48
+  let tuplet-extra-reserve = if tuplet-fragments.len() > 0 {
+    tuplet-arc-height + beam-note-width * 0.86 + endpoint-clearance
+  } else {
+    0pt
+  }
   let has-repeat-count = false
   for measure in row {
     if measure.repeat-end and measure.volta == none and measure.repeat-count > 2 {
@@ -776,7 +859,7 @@
     }
   }
   let structure-upper-reserve = if volta-fragments.len() > 0 or has-repeat-count { beam-note-width * 1.18 } else { 0pt }
-  let upper-dot-height = calc.max(notation-upper-height, link-upper-reserve, grace-upper-reserve) + structure-upper-reserve
+  let upper-dot-height = calc.max(notation-upper-height, link-upper-reserve, grace-upper-reserve) + tuplet-extra-reserve + structure-upper-reserve
   let bar-upper-extension = beam-note-width * 0.45
   let bar-lower-extension = bar-upper-extension
   // Barlines describe the main-note row only. Chord members, octave dots,
@@ -822,32 +905,69 @@
     // Links are row-level overlays, so a span may cross a bar line without
     // changing measure widths or the note/beam alignment underneath.
     #for link in notation-links {
-      let start = if link.start == none { none } else { note-positions.at(link.start) }
-      let end = if link.end == none { none } else { note-positions.at(link.end) }
-      let inset = if link.kind == "tie" { beam-note-width * 0.24 } else { beam-note-width * 0.10 }
-      let boundary-inset = beam-note-width * 0.12
-      let start-x = if start == none { boundary-inset } else { start.x + inset }
-      let end-x = if end == none { line-width - boundary-inset } else { end.x - inset }
-      let width = calc.max(end-x - start-x, beam-note-width * 0.2)
+      let span = row-link-span(link, note-positions, line-width, beam-note-width)
       let base-arc-height = notation-link-base-height(link, note-positions, beam-note-width)
       let arc-height = notation-link-arc-height(link, note-positions, line-width, base-arc-height, beam-note-width, dot-radius, dot-gap, beam-gap, endpoint-clearance)
       // Use the same clearance above a digit or its upper-dot stack. This
       // keeps unmarked endpoints from appearing noticeably tighter.
       let digit-endpoint = upper-dot-height - endpoint-clearance
-      let start-upper-height = if start == none { 0pt } else { notation-link-item-upper-height(start, beam-note-width, dot-radius, dot-gap) }
-      let end-upper-height = if end == none { 0pt } else { notation-link-item-upper-height(end, beam-note-width, dot-radius, dot-gap) }
+      let start-upper-height = if span.start == none { 0pt } else { notation-link-item-upper-height(span.start, beam-note-width, dot-radius, dot-gap) }
+      let end-upper-height = if span.end == none { 0pt } else { notation-link-item-upper-height(span.end, beam-note-width, dot-radius, dot-gap) }
       let start-y = if start-upper-height > 0pt { upper-dot-height - start-upper-height - endpoint-clearance } else { digit-endpoint }
       let end-y = if end-upper-height > 0pt { upper-dot-height - end-upper-height - endpoint-clearance } else { digit-endpoint }
-      place(top + left, dx: start-x)[
-        #if start != none and end != none {
-          notation-arc(width, start-y, end-y, arc-height)
-        } else if start != none {
-          notation-open-arc(width, start-y, arc-height, "outgoing")
-        } else if end != none {
-          notation-open-arc(width, end-y, arc-height, "incoming")
+      place(top + left, dx: span.left)[
+        #if span.start != none and span.end != none {
+          notation-arc(span.width, start-y, end-y, arc-height)
+        } else if span.start != none {
+          notation-open-arc(span.width, start-y, arc-height, "outgoing")
+        } else if span.end != none {
+          notation-open-arc(span.width, end-y, arc-height, "incoming")
         } else {
-          notation-through-arc(width, beam-note-width * 0.16, beam-note-width * 0.08)
+          notation-through-arc(span.width, beam-note-width * 0.16, beam-note-width * 0.08)
         }
+      ]
+    }
+    #for fragment in tuplet-fragments {
+      let local-obstacle = 0pt
+      for (local-index, item) in event-positions.slice(fragment.start-index, fragment.end-index + 1).enumerate() {
+        let first = local-index == 0
+        let last = local-index == fragment.end-index - fragment.start-index
+        let outside-boundary-grace = item.note.kind == "grace" and (
+          // A leading pre-grace lies left of its target; a trailing post-grace
+          // lies right of its target. The opposite combinations remain under
+          // the tuplet arc and therefore still participate in avoidance.
+          (first and item.note.direction != "previous") or
+          (last and item.note.direction == "previous")
+        )
+        if not outside-boundary-grace {
+          local-obstacle = calc.max(
+            local-obstacle,
+            tuplet-event-upper-height(item, beam-note-width, dot-radius, dot-gap),
+          )
+        }
+      }
+      // Only links crossing this tuplet's horizontal span can push it upward;
+      // an unrelated slur elsewhere in the row must not affect its height.
+      let link-clearance = 0pt
+      for link in notation-links {
+        let span = row-link-span(link, note-positions, line-width, beam-note-width)
+        let fragment-right = fragment.x + fragment.width
+        if span.left <= fragment-right and span.right >= fragment.x {
+          let base-height = notation-link-base-height(link, note-positions, beam-note-width)
+          let arc-height = notation-link-arc-height(link, note-positions, line-width, base-height, beam-note-width, dot-radius, dot-gap, beam-gap, endpoint-clearance)
+          link-clearance = calc.max(link-clearance, arc-height + endpoint-clearance)
+        }
+      }
+      let endpoint-y = upper-dot-height - local-obstacle - endpoint-clearance - link-clearance
+      place(top + left, dx: fragment.x)[
+        #tuplet-mark(
+          fragment.width,
+          endpoint-y,
+          tuplet-arc-height,
+          fragment.number,
+          beam-note-width,
+          thickness: beam-thickness * 0.72,
+        )
       ]
     }
     #for fragment in volta-fragments {
