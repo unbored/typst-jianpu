@@ -1,4 +1,4 @@
-#import "../jianpu.typ": jianpu, jianpu-title
+#import "../jianpu.typ": jianpu, jianpu-inline, jianpu-title
 #import "../src/parser.typ": parse-measures
 
 // Model-only checks: these emit no content, but keep exact onset/duration
@@ -29,7 +29,9 @@
   ),
 )
 
-= 换行测试
+= 核心功能测试
+
+== 换行测试
 
 #jianpu(
   ```melody
@@ -38,7 +40,7 @@
   ```,
 )
 
-= 时值线测试
+== 时值线测试
 
 #jianpu(
   ```melody
@@ -47,7 +49,7 @@
   ```,
 )
 
-= 高低八度测试
+== 高低八度测试
 
 #jianpu(
   ```melody
@@ -55,7 +57,7 @@
   ```,
 )
 
-= 升降号测试
+== 升降号测试
 
 #jianpu(
   ```melody
@@ -64,7 +66,7 @@
   ```,
 )
 
-= 附着符号测试
+== 附着符号测试
 
 #jianpu(
   ```melody
@@ -76,7 +78,7 @@
   ```,
 )
 
-= 泛音作用域测试
+== 泛音作用域测试
 
 #jianpu(
   ```melody
@@ -87,7 +89,7 @@
   ```,
 )
 
-= 指令全称测试
+== 指令全称测试
 
 #jianpu(
   ```melody
@@ -101,7 +103,7 @@
   ```,
 )
 
-= 和弦测试
+== 和弦测试
 
 #jianpu(
   ```melody
@@ -113,14 +115,14 @@
 c[5' 1 3] c[1 3, 5] |
 ```)
 
-= 倚音测试
+== 倚音测试
 
 #jianpu(```melody
 g[6,,,( 7,, 6, 7, ]/// 1,/) | 2''( g<[3, 4)] | g[5' 6,,]/ 7 | 5,/ 5, 5
 g[1 2 3] | 4 | 5,/
 ```)
 
-= 连奏线与延音线测试
+== 连奏线与延音线测试
 
 #jianpu(```melody
 1( 2''' 3, 4,,) | 5~ 5 6'' ~ 6 7 |
@@ -128,20 +130,20 @@ g[1 2 3] | 4 | 5,/
 1 ( 3 4 5 | 2'' ) 5~ | 5 6 |
 ```)
 
-= 时值线分组测试
+== 时值线分组测试
 #jianpu(```melody
 6/// 5/// 3/// 2/// 1/// 2/// 3/// 5/// 6/// 5/// 3/// 2/// 1/// 2/// 3/// 5/// | 6/// 5/// 3/// 2/// 1// 2// 3/ 5/ | 6 - |
 ```)
 
-= 连音符测试
+== 连音符测试
 
 #jianpu(```melody
 t3[1 1 1]/ 4 | t3[5 6 7]// 1' | t3[1/ 2// 3// 4/] 5 | t5[#1' b2 3 4 5,]/// 6 |
 t3[g[6 7] 1 2]/ 3 | t3[4 5 g<[6 7]]/ 1 |
 ```)
 
-= 简谱测试
-== 第一段
+== 简谱测试
+=== 第一段
 #jianpu(
   ```melody
   5,, | 5,, 5,, - | 6,, 1,/ 6,,/ 5,, | 5,, - 5,, |
@@ -150,7 +152,7 @@ t3[g[6 7] 1 2]/ 3 | t3[4 5 g<[6 7]]/ 1 |
   justify-last: true,
 )
 
-= 多组 raw 输入测试
+== 多组 raw 输入测试
 
 #jianpu(
   ```melody
@@ -161,7 +163,7 @@ t3[g[6 7] 1 2]/ 3 | t3[4 5 g<[6 7]]/ 1 |
   ```,
 )
 
-= 歌词 track 占位测试
+== 歌词 track 占位测试
 
 #jianpu(
   ```melody
@@ -171,6 +173,366 @@ t3[g[6 7] 1 2]/ 3 | t3[4 5 g<[6 7]]/ 1 |
   春 眠 不 觉 晓 | 处 处 闻 啼 鸟 |
   ```,
 )
+
+= 专项回归测试
+
+== 标题调式兼容
+
+// 前置写法是规范形式，后置写法作为兼容输入，二者应得到相同调式。
+#jianpu-title([前置升号], key: "1=#F", meter: "2/4")
+#v(1em)
+#jianpu-title([后置升号兼容], key: "1=F#", meter: "2/4")
+#v(1em)
+#jianpu-title([前置降号], key: "1=bB", meter: "3/4")
+#v(1em)
+#jianpu-title([后置降号兼容], key: "1=Bb", meter: "3/4")
+
+== 行内简谱
+
+#text(font: "Arial", weight: "bold")[Before 123ABC #jianpu-inline("1 2/ 3//. 4'") 456After.]
+
+#text(font: "Arial", weight: "bold", size: 18pt)[Before123 #jianpu-inline("1, 2/ 3//. 4'") 456After.]
+
+#text(font: "Arial", weight: "bold")[普通：#jianpu-inline("1 2/ 3//. 4'")]
+
+#text(font: "Arial", weight: "bold")[紧凑：#jianpu-inline("1 2/ 3,//. 4'", compact: true)]
+
+#text(font: "Arial", weight: "bold")[紧凑附点方向：#jianpu-inline("1 2. 3 4/. 5 6//. 7", compact: true)]
+
+无自动小节线：#jianpu-inline("1 2 3 4")。
+
+仅绘制显式小节线：#jianpu-inline("1 2 | 3 4 |")。
+
+行内连音：#jianpu-inline("t3[1 2 3]/ 4", compact: true)。
+
+== 附点专项
+
+// 附点与数字的距离不随时值盒宽变化。
+#jianpu(first-indent: 0pt, ```melody
+1. 2/. 3//. 4///. | 1 2/ 3// 4/// |
+```)
+
+// 附点应与上下八度点、时值线同时存在且互不干扰。
+#jianpu(first-indent: 0pt, ```melody
+1'. 2,/. 3''//. 4,,///. |
+```)
+
+// 和弦附点属于整个和弦；倚音组后缀作用于每个成员。
+#jianpu(first-indent: 0pt, ```melody
+c[1 3 5]/. g[6 7]//. 1. |
+```)
+
+== 升降号与倚音八度点
+
+行内：#jianpu-inline("#1 b2/ n3//. #4'", compact: true) 对照文字。
+
+#jianpu(```melody
+g[#1' b2'' n3''']/// 4 | g[#1, b2,, n3,,,]/// 4 |
+g[1' #2'' 3''']/// 4 | g[1, #2,, 3,,,]/// 4 |
+```)
+
+== 时值线四分组
+
+#jianpu(first-indent: 0pt, ```melody
+1/ 2/ 3/ 4/ 5/ 6/ 7/ 1'/ |
+1// 2// 3// 4// 5// 6// 7// 1'// |
+1/// 2/// 3/// 4/// 5/// 6/// 7/// 1'/// 1'/// 7/// 6/// 5/// 4/// 3/// 2/// 1/// |
+6/// 5/// 3/// 2/// 1// 2// 3/ 5/ | 1/. 2// 3/. 4// |
+```)
+
+== 小节线与终止线
+
+// 和弦堆叠高度不应改变普通小节线或终止线的高度。
+#jianpu(first-indent: 0pt, ```melody
+1 2 3 4 | c[1 3 5' 7''] c[2 4 6' 1'''] | 5 6 7 1' |
+```)
+
+// 无论源码末尾是否显式写 `|`，都只产生一个终止小节线。
+#jianpu(first-indent: 0pt, ```melody
+1 2 3 4 | 5 6 7 1'
+```)
+
+#jianpu(first-indent: 0pt, ```melody
+1 2 3 4 | 5 6 7 1' |
+```)
+
+== Bravura Text 字形探针
+
+#let probe-music-symbol(glyph, size: 1em) = text(
+  font: "Bravura Text",
+  fallback: false,
+  size: size,
+)[#glyph]
+#let probe-numeral(value) = text(font: "Arial", weight: "bold")[#value]
+
+#probe-music-symbol("\u{e262}")#h(0.08em)#probe-numeral(1)
+#h(0.8em)
+#probe-music-symbol("\u{e260}")#h(0.08em)#probe-numeral(2)
+#h(0.8em)
+#probe-music-symbol("\u{e261}")#h(0.08em)#probe-numeral(3)
+#h(0.8em)
+#probe-music-symbol("\u{e263}")#h(0.08em)#probe-numeral(4)
+#h(0.8em)
+#probe-music-symbol("\u{e264}")#h(0.08em)#probe-numeral(5)
+
+#v(0.7em)
+
+#probe-music-symbol("\u{e262}", size: 0.7em)
+#h(0.8em)
+#probe-music-symbol("\u{e262}")
+#h(0.8em)
+#probe-music-symbol("\u{e262}", size: 1.3em)
+#h(0.8em)
+#probe-music-symbol("\u{e4c0}", size: 1.4em)
+
+== 倚音垂直间距
+
+// 加入倚音前后，主音时值线与上下点的垂直间距应保持一致。
+#jianpu(first-indent: 0pt, ```melody
+1'/ 2'// 3,/ 4,// |
+```)
+
+#jianpu(first-indent: 0pt, ```melody
+g[6, 7,] 1'/ 2'// 3,/ 4,// |
+```)
+
+// 主音盒宽不同，倚音组到主音字形的可见距离仍应一致。
+#jianpu(first-indent: 0pt, ```melody
+g[6 7] 1 | g[6 7] 2/ | g[6 7] 3// |
+1 g<[2 3] | 1/ g<[2 3] | 1// g<[2 3] |
+```)
+
+== 倚音极端八度点
+
+// 非现实的层数用于保护曲线端部、上方空间和成员对齐。
+#jianpu(```melody
+g[6,,,,,, 7,,,,,] 1 | 2 g<[3,,,,,, 4,,,,,] |
+g[6'''''' 7''''''] 1 | 2 g<[3''''' 4''''''] |
+```)
+
+#jianpu(```melody
+g[6 7] 1 | g[6' 7''] 1 | g[6''' 7''''] 1 | g[6''''' 7''''''] 1 |
+```)
+
+== 倚音内连奏与跨小节关联
+
+#jianpu(first-indent: 0pt, ```melody
+g[6,( 7,] 1) 2 | 3( g<[4, 5,)] 6 |
+g[1 2 ( 3] 4) 5 | 6( g<[7 1' ) 2'] 3' |
+g[1 2 3 ( 4 5 6 7]/ 1) | 2( g<[3 4 5 6 7 1' 2']/) |
+```)
+
+#jianpu(first-indent: 0pt, ```melody
+1 2 g[6, 7,]/ | 1 2 |
+3 4 | g<[5 6]/ 7 1' |
+```)
+
+// 关联的两个小节应一起移动，不能拆开倚音与目标主音。
+#block(width: 24em)[
+  #jianpu(first-indent: 0pt, ```melody
+  1 2 3 4 | 5 6 g[7 1']/ | 2' 3' 4' 5' |
+  ```)
+]
+
+== 跨行连线
+
+#block(width: 22em)[
+  #jianpu(first-indent: 0pt, ```melody
+  1( 2 3 4 | 5 6 7 1' | 2 3 4 5 | 6 7 1' 2' | 3 4) 5 6 |
+  ```)
+]
+
+#block(width: 22em)[
+  #jianpu(first-indent: 0pt, ```melody
+  1 2 3 4 | 5 6 7 1'~ | 1' 2' 3' 4' |
+  ```)
+]
+
+== 连音符组合成员
+
+#jianpu(```melody
+t3[1 1 1]/ 4 | t3[5 6 7]// 1' | t5[1 2 3 4 5]/// 6 |
+t3[1/ 2// 3// 4/] 5 | t3[1 2/] 3 4 |
+t3[#1' b2 3,,]/ 4 | t3[5( 6 7)]/ 1' | t3[1. 2 3]/ 4 |
+t3[c[1 3 5] 2 g[3 4]]/ 5 | t3[g<[6 7] 1 2]/ 3 |
+t3[g[6 7] 1 2]/ 3 | t3[4 5 g<[6 7]]/ 1 |
+t3[1 g[2 3] 4]/ 5 | t3[1 g[2' 3''] 4]/ 5 |
+```)
+
+== 反复结构
+
+=== 默认与多次反复
+
+#jianpu(```melody
+r{ 1 2 3 4 | 5 6 7 1 | }
+r3{ 1 2 3 4 | 5/ 6/ 7/ 1/ | }
+```)
+
+=== 结构边界可省略小节线
+
+#jianpu(
+  ```melody
+  1 2 3 4 |
+  r2{
+    5 6 7 1 |
+    a1{ 2 3 4 5 | } |
+    a2{ 6 7 1' 2' | } |
+  } |
+  3 4 5 6 |
+  ```,
+  size: 10pt,
+  first-indent: 0pt,
+)
+
+#jianpu(
+  ```melody
+  1 2 3 4
+  r2{
+    5 6 7 1
+    a1{ 2 3 4 5 }
+    a2{ 6 7 1' 2' }
+  }
+  3 4 5 6
+  ```,
+  size: 10pt,
+  first-indent: 0pt,
+)
+
+=== 不同结尾与共享边界
+
+#jianpu(```melody
+r2{
+  1 2 3 4 |
+  a1{ 5 6 7 1 | }
+  a2{ 5 6 7 2 | }
+}
+```)
+
+#jianpu(
+  ```melody
+  r2{
+    1 2 |
+    a1{ 3 4 | }
+    a2{ 5 6 | }
+  }
+  ```,
+  size: 10pt,
+  first-indent: 0pt,
+)
+
+#jianpu(```melody
+r3{
+  1 2 3 4 |
+  a1,2{ 5 6 7 1 | }
+  a3{ 5 6 7 3 | }
+}
+```)
+
+=== 结尾标签归并
+
+#jianpu(```melody
+r4{
+  1 2 3 4 |
+  a1,2,3{ 5 6 7 1 | }
+  a4{ 5 6 7 4 | }
+}
+r4{
+  1 2 3 4 |
+  a1-3{ 5 6 7 1 | }
+  a4{ 5 6 7 4 | }
+}
+r6{
+  1 2 3 4 |
+  a1,2,4,5,6{ 5 6 7 1 | }
+  a3{ 5 6 7 3 | }
+}
+```)
+
+=== 结尾后续与组合事件
+
+#jianpu(```melody
+r2{
+  1 2 3 4 |
+  a1{ 5 6 7 1 | }
+  a2{ 5 6 7 2 | }
+}
+3 4 5 6 |
+```)
+
+#jianpu(```melody
+r2{
+  1 c[1 3 5]/ 3 4 |
+  a1{ g[6 7] 1' 7, 6 | }
+  a2{ 5 c[1 3 5] 2 1 | }
+}
+```)
+
+=== 连续反复与换行
+
+#jianpu(
+  ```melody
+  1 2 3 4 |
+  r2{ 5 6 7 1 | }
+  r3{ 1' 7 6 5 | }
+  ```,
+  size: 10pt,
+  first-indent: 0pt,
+)
+
+#block(width: 58mm)[
+  #jianpu(
+    ```melody
+    1 2 |
+    r2{ 3 4 5 6 | }
+    r3{ 1' 7 6 5 | }
+    ```,
+    size: 10pt,
+    first-indent: 0pt,
+  )
+]
+
+#block(width: 40mm)[
+  #jianpu(
+    ```melody
+    1 2 3 4 |
+    r2{ 5 6 7 1 | }
+    ```,
+    size: 10pt,
+    first-indent: 0pt,
+  )
+]
+
+=== 跨行结尾范围
+
+#block(width: 88mm)[
+  #jianpu(```melody
+  r2{
+    1 2 3 4 | 5 6 7 1 |
+    a1{
+      1/ 2/ 3/ 4/ | 5/ 6/ 7/ 1/ |
+      2 3 4 5 | 6 7 1' 2' |
+    }
+    a2{ 5 4 3 2 | 1 - - - | }
+  }
+  ```)
+]
+
+== 完整曲谱压力测试
+
+#jianpu-title(
+  [完整曲谱示例],
+  subtitle: [综合布局压力测试],
+  key: "1=C",
+  meter: "2/4",
+  authors: ((name: [测试作者], role: [整理]),),
+)
+
+#jianpu(```melody
+1,,/ 1,. | g[5,, 5,,] 5,, 1'/// 6/// 5// 3,/ | 5,. 6/// 5/// 3// | 1,/( 6,,.) | 6,,/( 1,/) 5,,/( 6,,/) | 3,,. 3// 2// | 6/ 5/ 3 | g[1 2 3 5 6 1']/// 2' - |
+1, 2,/( 5,/) | 3,.( 5,/) | 2,.( 3,/) | 1, - | 6,,. 1,/( | 2,.) 3/ | 5,. 1,/ | 5,, - | g[6 5 3 2]/// 1/ 5,,// 6,,// 1,( | 1,) 2,/( 3,/) | 5,. 1/ | 6,/( 1) 3/ | 2 - | g[5, 5,] 5, 5,/( 6,/) | 1/( 2/) 2' | 6,/( 1) 2//( 6,//) | c[1,, 1]. c[2,, 2]/ | c[5,, 5]. 6,,// 2,,// | c[5,, 5] g[2 1 6, 5, 3,]/// 2,/ g[1, 2, 3, 5, 6, 1]/// 2/ | c[2,, 2] - | - -
+r11{6/// 5/// 3/// 2/// 1/// 2/// 3/// 5/// 6/// 5/// 3/// 2/// 1/// 2/// 3/// 5///}
+6/// 5/// 3/// 2/// 1// 2// 3/ 5/ | 6 -
+```, justify-last: true)
 
 == 段落测试
 
