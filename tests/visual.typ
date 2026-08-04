@@ -87,6 +87,20 @@
   ```,
 )
 
+= 指令全称测试
+
+#jianpu(
+  ```melody
+  h{ chord[1 3 5] grace[6 7] 1 | 2 grace<[3 4] | }
+  tuplet3[1 2 3]/ 4 |
+  repeat3{
+    1 2 |
+    alter1{ 3 4 | }
+    alter2{ 5 6 | }
+  }
+  ```,
+)
+
 = 和弦测试
 
 #jianpu(

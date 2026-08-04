@@ -132,7 +132,11 @@
 }
 
 #let square-group-start(token) = {
-  let note-group = token.starts-with("c[") or token.starts-with("g[") or token.starts-with("g<[")
+  let note-group = (
+    token.starts-with("c[") or token.starts-with("chord[") or
+    token.starts-with("g[") or token.starts-with("g<[") or
+    token.starts-with("grace[") or token.starts-with("grace<[")
+  )
   note-group or (token.starts-with("t") and token.contains("["))
 }
 
@@ -226,7 +230,8 @@
   let token-data = event-token-data(token)
   let token = token-data.core
   let parts = token.split("]")
-  let member-tokens = parts.at(0).slice(2).split(" ").filter(member => member != "")
+  let prefix-length = if token.starts-with("chord[") { 6 } else { 2 }
+  let member-tokens = parts.at(0).slice(prefix-length).split(" ").filter(member => member != "")
   let members = attach-standalone-link-marks(member-tokens)
     .map(member => parse-note(member, quarter-width, eighth-width, short-width, compact: compact))
   let ordered = if sort-chords { members.sorted(key: member => member.relative-pitch) } else { members }
@@ -251,8 +256,11 @@
 #let parse-grace(token, quarter-width, eighth-width, short-width, compact: false) = {
   let token-data = event-token-data(token)
   let token = token-data.core
-  let direction = if token.starts-with("g<[") { "previous" } else { "next" }
-  let prefix-length = if direction == "previous" { 3 } else { 2 }
+  let direction = if token.starts-with("g<[") or token.starts-with("grace<[") { "previous" } else { "next" }
+  let prefix-length = if token.starts-with("grace<[") { 7 }
+    else if token.starts-with("grace[") { 6 }
+    else if direction == "previous" { 3 }
+    else { 2 }
   let parts = token.split("]")
   let outer-suffix = if parts.len() > 1 { parts.at(1) } else { "" }
   let stripped-suffix = strip-link-marks(outer-suffix)
@@ -284,9 +292,12 @@
 }
 
 #let parse-event(token, quarter-width, eighth-width, short-width, sort-chords: true, compact: false) = {
-  if token.starts-with("c[") and token.contains("]") {
+  if (token.starts-with("c[") or token.starts-with("chord[")) and token.contains("]") {
     parse-chord(token, quarter-width, eighth-width, short-width, sort-chords: sort-chords, compact: compact)
-  } else if (token.starts-with("g[") or token.starts-with("g<[")) and token.contains("]") {
+  } else if (
+    token.starts-with("g[") or token.starts-with("g<[") or
+    token.starts-with("grace[") or token.starts-with("grace<[")
+  ) and token.contains("]") {
     parse-grace(token, quarter-width, eighth-width, short-width, compact: compact)
   } else { parse-note(token, quarter-width, eighth-width, short-width, compact: compact) }
 }
@@ -321,8 +332,9 @@
 
 #let parse-tuplet(token, id, quarter-width, eighth-width, short-width, sort-chords: true, compact: false) = {
   let opening = token.split("[")
-  assert(opening.len() >= 2, message: "tuplet must use tN[...] format")
-  let number-source = opening.at(0).slice(1)
+  assert(opening.len() >= 2, message: "tuplet must use tN[...] or tupletN[...] format")
+  let prefix-length = if token.starts-with("tuplet") { 6 } else { 1 }
+  let number-source = opening.at(0).slice(prefix-length)
   assert(number-source != "", message: "tuplet number is required")
   let number = int(number-source)
   assert(number >= 2, message: "tuplet number must be at least 2")
@@ -381,9 +393,15 @@
   let harmonic-depth = 0
 
   for token in tokens {
-    let repeat-open = token.starts-with("r") and token.ends-with("{")
-    let alternative-open = token.starts-with("a") and token.ends-with("{")
-    let harmonic-open = token == "harmonic{"
+    let repeat-prefix-length = if token.starts-with("repeat") { 6 }
+      else if token.starts-with("r") { 1 }
+      else { 0 }
+    let alternative-prefix-length = if token.starts-with("alter") { 5 }
+      else if token.starts-with("a") { 1 }
+      else { 0 }
+    let repeat-open = repeat-prefix-length > 0 and token.ends-with("{")
+    let alternative-open = alternative-prefix-length > 0 and token.ends-with("{")
+    let harmonic-open = token == "harmonic{" or token == "h{"
 
     if token == "|" {
       if current.len() > 0 {
@@ -404,7 +422,7 @@
         let preceding = measures.pop()
         measures.push(preceding + (bar: false))
       }
-      let count-source = token.slice(1, token.len() - 1)
+      let count-source = token.slice(repeat-prefix-length, token.len() - 1)
       let count = if count-source == "" { 2 } else { int(count-source) }
       assert(count >= 2, message: "repeat count must be at least 2")
       repeat = (count: count, start: measures.len(), alternatives: ())
@@ -415,7 +433,7 @@
         measures.push(plain-measure(current, true))
         current = ()
       }
-      alternative = (label: token.slice(1, token.len() - 1), start: measures.len())
+      alternative = (label: token.slice(alternative-prefix-length, token.len() - 1), start: measures.len())
       structures.push("alternative")
     } else if harmonic-open {
       harmonic-depth += 1
@@ -543,8 +561,8 @@
   let raw-tokens = group-text(score)
     .replace(regex("\\r?\\n"), " ")
     .replace("|", " | ")
-    // Opening braces remain attached to `rN`/`aN`; closing braces are
-    // structural tokens. Square-bracket note groups are left untouched.
+    // Opening braces remain attached to structural names (`rN`/`repeatN`,
+    // `aN`/`alterN`, and `h`/`harmonic`); closing braces are standalone.
     .replace("{", "{ ")
     .replace("}", " } ")
     .split(" ")
