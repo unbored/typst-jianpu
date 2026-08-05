@@ -547,6 +547,8 @@
   note-gaps: none,
   grace-targets: none,
   leading-gap: 0pt,
+  leading-note-gap: none,
+  trailing-bar-gap: none,
   bar-width: 5pt,
   bar-gap: 6pt,
   beam-gap: 2pt,
@@ -560,7 +562,11 @@
 ) = {
   let parts = ()
   let actual-note-gaps = resolve-note-gaps(measure, note-gaps, extra-note-gap)
-  let side-gaps = measure-side-gaps(leading-gap, bar-gap, measure.bar)
+  let side-gaps = if leading-note-gap != none and trailing-bar-gap != none {
+    (leading: leading-note-gap, trailing: trailing-bar-gap)
+  } else {
+    measure-side-gaps(leading-gap, bar-gap, measure.bar)
+  }
   let lower-dot-reserve = if max-octave-down(measure) > 0 {
     beam-gap + octave-dots-height(max-octave-down(measure), dot-radius: dot-radius, dot-gap: dot-gap)
   } else {
@@ -802,7 +808,13 @@
   for (index, measure-data) in row.enumerate() {
     if index > 0 and not measure-data.repeat-start { measure-gap-count += 1 }
   }
-  let gap-count = inner-gap-count + measure-gap-count
+  // On ordinary justified rows, the final note-to-bar distance is another
+  // flexible visual gap. Otherwise the last extension stroke hugs the final
+  // bar while all preceding event centers spread across the line.
+  let terminal-gap-count = if (
+    simple-row-boundaries(row) and row.len() > 0 and row.at(row.len() - 1).bar
+  ) { 1 } else { 0 }
+  let gap-count = inner-gap-count + measure-gap-count + terminal-gap-count
   if justify and gap-count > 0 { (line-width - min-width) / gap-count } else { 0pt }
 }
 
@@ -1255,23 +1267,20 @@
 
   let event-offset = 0
   for (index, measure) in row.enumerate() {
-    let leading-gap = if index == 0 or measure.repeat-start {
-      0pt
-    } else {
-      min-measure-gap + extra-gap
-    }
-    let measure-width = measure-min-width(measure, bar-width: bar-width, bar-gap: bar-gap) + extra-gap * calc.max(measure.notes.len() - 1, 0)
+    let side-gaps = row-measure-side-gaps(row, index, extra-gap, min-measure-gap, bar-gap)
+    let measure-width = row-allocated-measure-width(row, index, extra-gap, min-measure-gap, bar-width, bar-gap)
     let note-gaps = note-gaps-from-extra(measure, extra-gap)
     let measure-grace-targets = grace-targets.slice(event-offset, event-offset + measure.notes.len())
     event-offset += measure.notes.len()
 
-    columns.push(leading-gap + measure-width)
+    columns.push(measure-width)
     cells.push(render-measure(
       measure,
       extra-note-gap: extra-gap,
       note-gaps: note-gaps,
       grace-targets: measure-grace-targets,
-      leading-gap: leading-gap,
+      leading-note-gap: side-gaps.leading,
+      trailing-bar-gap: side-gaps.trailing,
       bar-width: bar-width,
       bar-gap: bar-gap,
       beam-gap: beam-gap,

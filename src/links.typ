@@ -129,15 +129,63 @@
   width
 }
 
+#let simple-row-boundaries(row) = not row.any(measure => (
+  measure.repeat-start or measure.repeat-start-visible or
+  measure.repeat-end or measure.repeat-both
+))
+
+// Ordinary boundaries split their complete visual gap around the barline:
+// half before the bar and half after it. The old fallback remains for repeat
+// structures whose combined bar slots have asymmetric anchors.
+#let row-measure-side-gaps(row, index, extra-gap, min-measure-gap, bar-gap) = {
+  let measure = row.at(index)
+  if simple-row-boundaries(row) {
+    let leading = if index == 0 {
+      0pt
+    } else {
+      (bar-gap + min-measure-gap + extra-gap) / 2
+    }
+    let trailing = if not measure.bar {
+      0pt
+    } else if index < row.len() - 1 {
+      (bar-gap + min-measure-gap + extra-gap) / 2
+    } else {
+      // The terminal note-to-bar interval participates in justification just
+      // like every note-to-note and ordinary measure-boundary interval.
+      bar-gap + extra-gap
+    }
+    (leading: leading, trailing: trailing)
+  } else {
+    let old-leading = if index == 0 or measure.repeat-start { 0pt } else { min-measure-gap + extra-gap }
+    let side = if measure.bar { (old-leading + bar-gap) / 2 } else { old-leading }
+    (leading: side, trailing: if measure.bar { side } else { 0pt })
+  }
+}
+
+#let row-allocated-measure-width(row, index, extra-gap, min-measure-gap, bar-width, bar-gap) = {
+  let measure = row.at(index)
+  if simple-row-boundaries(row) {
+    let sides = row-measure-side-gaps(row, index, extra-gap, min-measure-gap, bar-gap)
+    let width = measure-start-prefix-width(measure, bar-width, bar-gap) + sides.leading + sides.trailing
+    for note in measure.notes { width += event-width(note) }
+    width += extra-gap * calc.max(measure.notes.len() - 1, 0)
+    if measure.bar { width += measure-bar-slot-width(measure, bar-width) }
+    width
+  } else {
+    let leading = if index == 0 or measure.repeat-start { 0pt } else { min-measure-gap + extra-gap }
+    let width = leading + measure-min-width(measure, bar-width: bar-width, bar-gap: bar-gap)
+    width += extra-gap * calc.max(measure.notes.len() - 1, 0)
+    width
+  }
+}
+
 #let row-measure-spans(row, extra-gap, min-measure-gap, bar-width, bar-gap) = {
   let spans = ()
   let offset = 0pt
   for (index, measure) in row.enumerate() {
-    let leading-gap = if index == 0 or measure.repeat-start { 0pt } else { min-measure-gap + extra-gap }
-    let measure-width = measure-min-width(measure, bar-width: bar-width, bar-gap: bar-gap) + extra-gap * calc.max(measure.notes.len() - 1, 0)
-    let start = offset + leading-gap
-    spans.push((start: start, end: start + measure-width))
-    offset += leading-gap + measure-width
+    let measure-width = row-allocated-measure-width(row, index, extra-gap, min-measure-gap, bar-width, bar-gap)
+    spans.push((start: offset, end: offset + measure-width))
+    offset += measure-width
   }
   spans
 }
@@ -464,8 +512,7 @@
   let positions = ()
   let row-offset = 0pt
   for (measure-index, measure) in row.enumerate() {
-    let leading-gap = if measure-index == 0 or measure.repeat-start { 0pt } else { min-measure-gap + extra-gap }
-    let side-gaps = measure-side-gaps(leading-gap, bar-gap, measure.bar)
+    let side-gaps = row-measure-side-gaps(row, measure-index, extra-gap, min-measure-gap, bar-gap)
     let note-gaps = note-gaps-from-extra(measure, extra-gap)
     let note-offset = row-offset + measure-start-prefix-width(measure, bar-width, bar-gap) + side-gaps.leading
     for (note-index, note) in measure.notes.enumerate() {
@@ -473,8 +520,7 @@
       note-offset += event-width(note)
       if note-index < measure.notes.len() - 1 { note-offset += note-gap-at(note-gaps, note-index) }
     }
-    let measure-width = measure-min-width(measure, bar-width: bar-width, bar-gap: bar-gap) + extra-gap * calc.max(measure.notes.len() - 1, 0)
-    row-offset += leading-gap + measure-width
+    row-offset += row-allocated-measure-width(row, measure-index, extra-gap, min-measure-gap, bar-width, bar-gap)
   }
   positions
 }
