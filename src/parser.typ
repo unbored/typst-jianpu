@@ -29,11 +29,96 @@
   )
 }
 
+#let rich-annotation-data(token) = {
+  let core = ""
+  let annotations = ()
+  let pending-marker = none
+  let placement = none
+  let depth = 0
+  let quoted = false
+  let escaped = false
+  let content = ""
+  for character in token {
+    if depth == 0 {
+      if pending-marker != none and character == "[" {
+        placement = if pending-marker == "^" { "above" } else { "below" }
+        pending-marker = none
+        depth = 1
+        content = ""
+      } else {
+        if pending-marker != none {
+          core += pending-marker
+          pending-marker = none
+        }
+        if character == "^" or character == "_" {
+          pending-marker = character
+        } else {
+          core += character
+        }
+      }
+    } else if quoted {
+      content += character
+      if escaped {
+        escaped = false
+      } else if character == "\\" {
+        escaped = true
+      } else if character == "\"" {
+        quoted = false
+      }
+    } else if character == "\"" {
+      quoted = true
+      content += character
+    } else if character == "[" {
+      depth += 1
+      content += character
+    } else if character == "]" {
+      depth -= 1
+      if depth > 0 {
+        content += character
+      } else {
+        annotations.push((text: content, placement: placement, markup: true))
+        placement = none
+        content = ""
+      }
+    } else {
+      content += character
+    }
+  }
+  if pending-marker != none { core += pending-marker }
+  assert(depth == 0, message: "unclosed rich note annotation")
+  (core: core, annotations: annotations)
+}
+
+#let text-annotation-data(token) = {
+  let rich-data = rich-annotation-data(token)
+  let segments = rich-data.core.split("\"")
+  assert(calc.rem(segments.len(), 2) == 1, message: "unclosed quoted note annotation")
+  let core = ""
+  let annotations = rich-data.annotations
+  let index = 0
+  while index < segments.len() {
+    let outside = segments.at(index)
+    if index + 1 < segments.len() {
+      assert(outside.ends-with("^") or outside.ends-with("_"), message: "quoted note text must use ^\"...\" or _\"...\"")
+      let placement = if outside.ends-with("^") { "above" } else { "below" }
+      core += outside.slice(0, outside.len() - 1)
+      annotations.push((text: segments.at(index + 1), placement: placement, markup: false))
+      index += 2
+    } else {
+      core += outside
+      index += 1
+    }
+  }
+  (core: core, annotations: annotations)
+}
+
 #let event-token-data(token) = {
-  let parts = token.split("@")
+  let annotation-data = text-annotation-data(token)
+  let parts = annotation-data.core.split("@")
   (
     core: parts.at(0),
     marks: parts.slice(1).enumerate().map(((index, source)) => notation-symbol-data(source, index)),
+    annotations: annotation-data.annotations,
   )
 }
 
@@ -113,8 +198,12 @@
   for token in tokens {
     let standalone-link = token == "(" or token == ")" or token == "~"
     let standalone-symbol = token.starts-with("sym.")
+    let standalone-text = (
+      token.starts-with("^\"") or token.starts-with("_\"") or
+      token.starts-with("^[") or token.starts-with("_[")
+    )
     let has-preceding-event = attached.len() > 0 and attached.at(attached.len() - 1) != "|"
-    if (standalone-link or standalone-symbol) and has-preceding-event {
+    if (standalone-link or standalone-symbol or standalone-text) and has-preceding-event {
       let last = attached.at(attached.len() - 1)
       let attachment = if standalone-symbol {
         let symbol-source = strip-link-marks(token)
@@ -129,6 +218,56 @@
     }
   }
   attached
+}
+
+#let merge-quoted-tokens(raw-tokens) = {
+  let tokens = ()
+  let quoted = none
+  let quote-count = 0
+  for token in raw-tokens {
+    if quoted == none {
+      let count = token.split("\"").len() - 1
+      if calc.rem(count, 2) == 1 {
+        quoted = token
+        quote-count = count
+      } else {
+        tokens.push(token)
+      }
+    } else {
+      quoted += " " + token
+      quote-count += token.split("\"").len() - 1
+      if calc.rem(quote-count, 2) == 0 {
+        tokens.push(quoted)
+        quoted = none
+      }
+    }
+  }
+  assert(quoted == none, message: "unclosed quoted note annotation")
+  tokens
+}
+
+#let merge-rich-annotation-tokens(raw-tokens) = {
+  let bracket-balance(value) = value.split("[").len() - value.split("]").len()
+  let tokens = ()
+  let compound = none
+  let depth = 0
+  for token in raw-tokens {
+    if compound != none {
+      compound += " " + token
+      depth += bracket-balance(token)
+      if depth == 0 {
+        tokens.push(compound)
+        compound = none
+      }
+    } else if (token.contains("^[") or token.contains("_[")) and bracket-balance(token) > 0 {
+      compound = token
+      depth = bracket-balance(token)
+    } else {
+      tokens.push(token)
+    }
+  }
+  assert(compound == none, message: "unclosed rich note annotation")
+  tokens
 }
 
 #let square-group-start(token) = {
@@ -169,7 +308,7 @@
 
 #let note-group-tokens(source) = {
   let raw-tokens = source.split(" ").filter(token => token != "")
-  attach-standalone-link-marks(merge-square-groups(raw-tokens))
+  attach-standalone-link-marks(merge-square-groups(merge-rich-annotation-tokens(merge-quoted-tokens(raw-tokens))))
 }
 
 #let first-octave-direction(token) = {
@@ -213,6 +352,7 @@
     dots: dots,
     written-duration: duration, duration: duration,
     marks: token-data.marks,
+    annotations: token-data.annotations,
     pitch: pitch, octave: octave, relative-pitch: pitch + octave * 7,
     octave-up: octave-up, octave-down: octave-down,
     accidental: accidental-data.kind,
@@ -243,6 +383,7 @@
     dots: duration.dots,
     written-duration: duration.written-duration, duration: duration.duration,
     marks: token-data.marks,
+    annotations: token-data.annotations,
     pitch: root.pitch, octave: root.octave, relative-pitch: root.relative-pitch,
     octave-up: root.octave-up, octave-down: root.octave-down,
     accidental: root.accidental,
@@ -278,6 +419,7 @@
     // grace event itself occupies no position on the main musical timeline.
     written-duration: time-value(0, 1), duration: time-value(0, 1),
     marks: token-data.marks,
+    annotations: token-data.annotations,
     octave-up: 0, octave-down: 0, accidental: none, leading-width: 0pt, trailing-width: 0pt,
     tuplet: none,
     slur-start: slur-start-count(outer-suffix), slur-end: slur-end-count(outer-suffix), tie-start: tie-start-count(outer-suffix),
@@ -594,7 +736,7 @@
     .replace("}", " } ")
     .split(" ")
     .filter(token => token != "")
-  let tokens = merge-square-groups(raw-tokens)
+  let tokens = merge-square-groups(merge-rich-annotation-tokens(merge-quoted-tokens(raw-tokens)))
 
   // Standalone LilyPond-style marks belong to the preceding event, so
   // `1 ( 2 )` and `1( 2)` produce the same parser input.

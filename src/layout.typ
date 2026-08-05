@@ -795,6 +795,199 @@
   count
 }
 
+#let row-extra-gap-for-width(row, line-width, min-measure-gap, bar-width, bar-gap, justify) = {
+  let min-width = row-min-width(row, min-measure-gap: min-measure-gap, bar-width: bar-width, bar-gap: bar-gap)
+  let inner-gap-count = calc.max(row-note-count(row) - row.len(), 0)
+  let measure-gap-count = 0
+  for (index, measure-data) in row.enumerate() {
+    if index > 0 and not measure-data.repeat-start { measure-gap-count += 1 }
+  }
+  let gap-count = inner-gap-count + measure-gap-count
+  if justify and gap-count > 0 { (line-width - min-width) / gap-count } else { 0pt }
+}
+
+#let annotation-line-split(source, width, annotation-font, annotation-size) = {
+  let body-width(value) = measure(text(font: annotation-font, size: annotation-size, weight: "regular")[#value]).width
+  if source == "" or body-width(source) <= width {
+    (line: source, rest: "")
+  } else {
+    let words = source.split(" ").filter(word => word != "")
+    let line = ""
+    for (index, word) in words.enumerate() {
+      let candidate = if line == "" { word } else { line + " " + word }
+      if body-width(candidate) <= width {
+        line = candidate
+      } else if line != "" {
+        return (line: line, rest: words.slice(index).join(" "))
+      } else {
+        // A single unspaced item (commonly Chinese) may still exceed the
+        // available width. Split it by characters, but always consume one.
+        let prefix = ""
+        let consumed = 0
+        for character in word {
+          let candidate = prefix + character
+          if prefix == "" or body-width(candidate) <= width {
+            prefix = candidate
+            consumed += 1
+          } else {
+            break
+          }
+        }
+        let remainder = word.slice(consumed)
+        let rest = (if remainder == "" { () } else { (remainder,) }) + words.slice(index + 1)
+        return (line: prefix, rest: rest.join(" "))
+      }
+    }
+    (line: line, rest: "")
+  }
+}
+
+#let annotation-content(annotation, annotation-font, annotation-size) = {
+  let body = if annotation.markup {
+    eval(annotation.text, mode: "markup")
+  } else {
+    annotation.text
+  }
+  text(font: annotation-font, size: annotation-size, weight: "regular")[#body]
+}
+
+#let row-annotation-fragments(
+  rows,
+  line-width,
+  first-line-width,
+  min-measure-gap,
+  bar-width,
+  bar-gap,
+  note-head-width,
+  annotation-font,
+  justify-last,
+) = {
+  let fragments = rows.map(_ => ())
+  let annotation-size = notation-size-from-head-width(note-head-width) * 0.90
+  for (row-index, row) in rows.enumerate() {
+    let actual-width = if row-index == 0 { first-line-width } else { line-width }
+    let justify = justify-last or row-index < rows.len() - 1
+    let extra-gap = row-extra-gap-for-width(row, actual-width, min-measure-gap, bar-width, bar-gap, justify)
+    let positions = row-event-positions(row, extra-gap, min-measure-gap, bar-width, bar-gap)
+    for item in positions {
+      for annotation in item.note.annotations {
+        let origin-left = calc.max(item.x - note-head-width / 2, 0pt)
+        if annotation.markup {
+          // Arbitrary markup cannot be split without losing its content tree
+          // and style scopes, so rich annotations retain local Typst wrapping.
+          fragments.at(row-index).push(annotation + (left: origin-left,))
+        } else {
+          let remaining = annotation.text
+          let target-row = row-index
+          let first-fragment = true
+          while remaining != "" {
+            let target-width = if target-row == 0 { first-line-width } else { line-width }
+            let left = if first-fragment { origin-left } else { 0pt }
+            let available = calc.max(target-width - left, note-head-width * 0.5)
+            if target-row < rows.len() - 1 {
+              let split = annotation-line-split(remaining, available, annotation-font, annotation-size)
+              if split.line != "" {
+                fragments.at(target-row).push((
+                  text: split.line,
+                  placement: annotation.placement,
+                  markup: false,
+                  left: left,
+                ))
+              }
+              remaining = split.rest
+              target-row += 1
+              first-fragment = false
+            } else {
+              // With no following notation row, retain the existing local
+              // paragraph wrap instead of manufacturing an empty score row.
+              fragments.at(target-row).push((
+                text: remaining,
+                placement: annotation.placement,
+                markup: false,
+                left: left,
+              ))
+              remaining = ""
+            }
+          }
+        }
+      }
+    }
+  }
+  fragments
+}
+
+#let annotation-boxes(event-positions, line-width, note-head-width, annotation-font, annotation-fragments: none) = {
+  let boxes = ()
+  let annotation-size = notation-size-from-head-width(note-head-width) * 0.90
+  let sources = if annotation-fragments == none {
+    let items = ()
+    for item in event-positions {
+      for annotation in item.note.annotations {
+        items.push((
+          text: annotation.text,
+          placement: annotation.placement,
+          markup: annotation.markup,
+          left: calc.max(item.x - note-head-width / 2, 0pt),
+        ))
+      }
+    }
+    items
+  } else {
+    annotation-fragments
+  }
+  for annotation in sources {
+      let left = annotation.left
+      let available = calc.max(line-width - left, note-head-width * 0.5)
+      let body = annotation-content(annotation, annotation-font, annotation-size)
+      let intrinsic = measure(body)
+      let width = calc.min(intrinsic.width, available)
+      let wrapped = block(width: width)[#body]
+      boxes.push((
+        placement: annotation.placement,
+        left: left,
+        right: left + width,
+        width: width,
+        height: measure(wrapped).height,
+        body: wrapped,
+      ))
+  }
+  boxes
+}
+
+#let annotation-local-upper-height(box-data, event-positions, note-head-width, dot-radius, dot-gap) = {
+  let height = 0pt
+  for item in event-positions {
+    let item-left = item.x - note-head-width / 2
+    let item-right = item.x + note-head-width / 2
+    if item-left <= box-data.right and item-right >= box-data.left {
+      height = calc.max(height, notation-link-upper-height(item.note, note-head-width, dot-radius, dot-gap))
+    }
+  }
+  height
+}
+
+#let event-bottom-height(note, note-head-width, beam-gap, dot-radius, dot-gap) = {
+  // Start at the measured event-head bottom rather than the canonical
+  // 0.7em head width; Arial digits are visibly taller than that estimate.
+  let height = measure(note-head(note, note-head-width: note-head-width)).height + note.beams * beam-gap
+  if note.octave-down > 0 {
+    height += beam-gap + octave-dots-height(note.octave-down, dot-radius: dot-radius, dot-gap: dot-gap)
+  }
+  height
+}
+
+#let annotation-local-lower-height(box-data, event-positions, note-head-width, beam-gap, dot-radius, dot-gap) = {
+  let height = 0pt
+  for item in event-positions {
+    let item-left = item.x - note-head-width / 2
+    let item-right = item.x + note-head-width / 2
+    if item-left <= box-data.right and item-right >= box-data.left {
+      height = calc.max(height, event-bottom-height(item.note, note-head-width, beam-gap, dot-radius, dot-gap))
+    }
+  }
+  height
+}
+
 // Lyrics use the exact event centers already shared by note heads, dots,
 // beams, and links. Long Chinese strings remain one centered item; English
 // hyphens are overlays at the midpoint between adjacent consumed slots.
@@ -936,23 +1129,14 @@
   link-fragments: none,
   lyric-lines: (),
   lyric-font: none,
+  annotation-font: none,
+  annotation-fragments: none,
   justify: true,
-) = {
-  let min-width = row-min-width(row, min-measure-gap: min-measure-gap, bar-width: bar-width, bar-gap: bar-gap)
-  let inner-gap-count = calc.max(row-note-count(row) - row.len(), 0)
-  let measure-gap-count = 0
-  for (index, measure) in row.enumerate() {
-    if index > 0 and not measure.repeat-start { measure-gap-count += 1 }
-  }
-  let gap-count = inner-gap-count + measure-gap-count
+) = context {
   // Row justification first allocates extra width to each measure and to each
   // measure boundary. Each measure then converts its allocated width into
   // variable note gaps so note heads are evenly spaced inside that measure.
-  let extra-gap = if justify and gap-count > 0 {
-    (line-width - min-width) / gap-count
-  } else {
-    0pt
-  }
+  let extra-gap = row-extra-gap-for-width(row, line-width, min-measure-gap, bar-width, bar-gap, justify)
   // Grace-to-main-note curves use row coordinates so their target may live in
   // the adjacent measure and the curve may pass through the intervening bar.
   let grace-targets = row-grace-targets(row, extra-gap, min-measure-gap, bar-width, bar-gap)
@@ -1010,7 +1194,57 @@
     }
   }
   let structure-upper-reserve = if volta-fragments.len() > 0 or has-repeat-count { beam-note-width * 1.18 } else { 0pt }
-  let upper-dot-height = calc.max(notation-upper-height, link-upper-reserve, grace-upper-reserve) + tuplet-extra-reserve + structure-upper-reserve
+  let annotation-upper-gap = beam-note-width * 0.64
+  let annotation-lower-gap = beam-note-width * 0.72
+  let annotations = annotation-boxes(
+    event-positions,
+    line-width,
+    beam-note-width,
+    annotation-font,
+    annotation-fragments: annotation-fragments,
+  )
+  let annotation-upper-reserve = 0pt
+  let row-lower-height = 0pt
+  for item in event-positions {
+    row-lower-height = calc.max(row-lower-height, event-bottom-height(item.note, beam-note-width, beam-gap, dot-radius, dot-gap))
+  }
+  let annotation-bottom-extra = 0pt
+  let positioned-annotations = ()
+  for annotation in annotations {
+    if annotation.placement == "above" {
+      let obstacle = annotation-local-upper-height(annotation, event-positions, beam-note-width, dot-radius, dot-gap)
+      for link in notation-links {
+        let span = row-link-span(link, note-positions, line-width, beam-note-width)
+        if span.left <= annotation.right and span.right >= annotation.left {
+          let base-height = notation-link-base-height(link, note-positions, line-width, beam-note-width)
+          let shape = notation-link-shape(link, note-positions, line-width, base-height, beam-note-width, dot-radius, dot-gap, endpoint-clearance)
+          obstacle = calc.max(obstacle, max-link-obstacle-height + shape.height + shape.shift + endpoint-clearance)
+        }
+      }
+      for fragment in tuplet-fragments {
+        if fragment.x <= annotation.right and fragment.x + fragment.width >= annotation.left {
+          obstacle = calc.max(obstacle, notation-upper-height + tuplet-arc-height + beam-note-width * 0.45)
+        }
+      }
+      // Only obstacles whose horizontal extent intersects this text box push
+      // it upward; unrelated tall notes elsewhere in the row are ignored.
+      annotation-upper-reserve = calc.max(annotation-upper-reserve, obstacle + annotation-upper-gap + annotation.height)
+      positioned-annotations.push(annotation + (obstacle: obstacle,))
+    } else {
+      let obstacle = annotation-local-lower-height(annotation, event-positions, beam-note-width, beam-gap, dot-radius, dot-gap)
+      annotation-bottom-extra = calc.max(
+        annotation-bottom-extra,
+        obstacle + annotation-lower-gap + annotation.height - row-lower-height,
+      )
+      positioned-annotations.push(annotation + (obstacle: obstacle,))
+    }
+  }
+  let upper-dot-height = calc.max(
+    notation-upper-height,
+    link-upper-reserve,
+    grace-upper-reserve,
+    annotation-upper-reserve,
+  ) + tuplet-extra-reserve + structure-upper-reserve
   let bar-upper-extension = beam-note-width * 0.45
   let bar-lower-extension = bar-upper-extension
   // Barlines describe the main-note row only. Chord members, octave dots,
@@ -1051,7 +1285,9 @@
     ))
   }
 
-  block(width: 100%)[
+  // A notation row and all of its attached text form one pagination unit;
+  // otherwise a lower annotation may be orphaned at the next page top.
+  block(width: 100%, breakable: false)[
     #grid(columns: columns, gutter: 0pt, ..cells)
     // Links are row-level overlays, so a span may cross a bar line without
     // changing measure widths or the note/beam alignment underneath.
@@ -1137,6 +1373,17 @@
         #render-volta-fragment(fragment, beam-note-width, beam-thickness)
       ]
     }
+    #for annotation in positioned-annotations {
+      let y = if annotation.placement == "above" {
+        upper-dot-height - annotation.obstacle - annotation-upper-gap - annotation.height
+      } else {
+        upper-dot-height + annotation.obstacle + annotation-lower-gap
+      }
+      place(top + left, dx: annotation.left, dy: y)[#annotation.body]
+    }
+    #if annotation-bottom-extra > 0pt {
+      v(annotation-bottom-extra)
+    }
     #if lyric-lines.len() > 0 {
       v(beam-note-width * 0.42)
       stack(dir: ttb, spacing: beam-note-width * 0.20,
@@ -1164,6 +1411,7 @@
   beam-thickness,
   dot-radius,
   dot-gap,
+  annotation-font: none,
 ) = {
   if track.measures.len() == 0 {
     []
@@ -1200,6 +1448,7 @@
         beam-thickness: beam-thickness,
         dot-radius: dot-radius,
         dot-gap: dot-gap,
+        annotation-font: annotation-font,
         justify: false,
       )
     ]
@@ -1224,6 +1473,7 @@
   first-indent: 0pt,
   lyric-tracks: (),
   lyric-font: none,
+  annotation-font: none,
 ) = context {
   let lyric-capacity = row-lyric-slot-count(track.measures)
   for lyric-track in lyric-tracks {
@@ -1282,6 +1532,17 @@
     }
     row-lyric-lines.push(lines)
   }
+  let row-annotations = row-annotation-fragments(
+    rows,
+    line-width,
+    first-line-width,
+    min-measure-gap,
+    bar-width,
+    bar-gap,
+    beam-note-width,
+    annotation-font,
+    justify-last,
+  )
 
   stack(dir: ttb, spacing: row-gap,
     ..rows.enumerate().map(((index, row)) => {
@@ -1305,6 +1566,8 @@
         link-fragments: fragments,
         lyric-lines: row-lyric-lines.at(index),
         lyric-font: lyric-font,
+        annotation-font: annotation-font,
+        annotation-fragments: row-annotations.at(index),
         justify: justify-last or index < rows.len() - 1,
       )
 

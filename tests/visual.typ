@@ -195,6 +195,53 @@ t3[g[6 7] 1 2]/ 3 | t3[4 5 g<[6 7]]/ 1 |
   ```,
 )
 
+== 音符上下文字
+
+#jianpu(
+  first-indent: 0pt,
+  ```melody
+  1 ^"dolce cantabile" 2' 3( 4) | 5// _"轻声进入" 6,// 7,,// 1'// |
+  2 3 4 5 ^"This annotation begins at the note head and wraps at the page edge when necessary" |
+  ```,
+  ```melody
+  1 ^"dolce cantabile" 2' 3( 4) | 5// _"轻声进入" 6,// 7,,// 1'// |
+  2 3 4 5 ^"This annotation begins at the note head and wraps at the page edge when necessary" | 1 2 3 4 | 5 6 7 1 | 2 3 4 5 | 6 7 1 2
+  ```,
+)
+
+=== Typst 富文本标注
+
+#jianpu(
+  first-indent: 0pt,
+  ```melody
+  1^[*dolce* #text(fill: red)[cantabile]] 2 3 4 |
+  5_[#text(fill: blue, style: "italic")[轻声进入]] 6 7 1' |
+  ```,
+)
+
+=== 跨现有乐谱行续排
+
+#block(width: 34em)[
+  #jianpu(
+    first-indent: 0pt,
+    ```melody
+    1 2 3 4 | 5 6 7 1' ^"Continue this annotation on the next existing notation row instead of changing the musical wrapping" |
+    1 2 3 4 | 5 6 7 1' |
+    ```,
+  )
+]
+
+=== 末行原地折行
+
+#block(width: 34em)[
+  #jianpu(
+    first-indent: 0pt,
+    ```melody
+    1 2 3 4 | 5 6 7 1' ^"No following notation row exists, so this final annotation wraps locally" |
+    ```,
+  )
+]
+
 = 专项回归测试
 
 == 标题调式兼容

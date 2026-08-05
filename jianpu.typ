@@ -67,6 +67,7 @@
           first-indent: first-indent,
           lyric-tracks: system.lyrics,
           lyric-font: actual-lyrics-font,
+          annotation-font: body-font,
         )
       }),
     )
@@ -75,6 +76,7 @@
 
 #let jianpu-inline(source, font: "Arial", sort-chords: true, compact: false) = context {
   let size = text.size
+  let body-font = text.font
   set text(font: font, size: size, weight: "bold")
 
   let geometry = metrics(size)
@@ -100,6 +102,7 @@
       geometry.beam-thickness,
       geometry.dot-radius,
       geometry.dot-gap,
+      annotation-font: body-font,
     )
   }
 }
