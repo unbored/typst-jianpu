@@ -783,6 +783,143 @@
   )
 }
 
+#let lyric-event(note) = note.kind != "grace" and not is-extension-note(note)
+
+#let row-lyric-slot-count(row) = {
+  let count = 0
+  for measure in row {
+    for note in measure.notes {
+      if lyric-event(note) { count += 1 }
+    }
+  }
+  count
+}
+
+// Lyrics use the exact event centers already shared by note heads, dots,
+// beams, and links. Long Chinese strings remain one centered item; English
+// hyphens are overlays at the midpoint between adjacent consumed slots.
+#let render-lyric-line(items, event-positions, line-width, note-head-width, lyric-font) = context {
+  let positions = event-positions.filter(item => lyric-event(item.note))
+  let lyric-size = notation-size-from-head-width(note-head-width) * 0.92
+  let line-height = lyric-size * 1.25
+  let bodies = items.map(item => {
+    if item.text == none {
+      none
+    } else {
+      let body = text(font: lyric-font, size: lyric-size, weight: "regular")[#item.text]
+      (content: body, size: measure(body))
+    }
+  })
+  box(width: line-width, height: line-height)[
+    #for (index, item) in items.enumerate() {
+      if index < positions.len() and bodies.at(index) != none {
+        let body = bodies.at(index)
+        place(top + left, dx: positions.at(index).x - body.size.width / 2)[#body.content]
+      }
+      if index < positions.len() and item.hyphen-after {
+        let gap-center = if (
+          index + 1 < positions.len() and
+          index + 1 < bodies.len() and
+          bodies.at(index) != none and
+          bodies.at(index + 1) != none
+        ) {
+          // Center the hyphen in the visible gap between the two lyric boxes,
+          // not halfway between note centers; unequal syllable widths matter.
+          let left-edge = positions.at(index).x + bodies.at(index).size.width / 2
+          let right-edge = positions.at(index + 1).x - bodies.at(index + 1).size.width / 2
+          (left-edge + right-edge) / 2
+        } else {
+          let next-x = if index + 1 < positions.len() { positions.at(index + 1).x } else { line-width }
+          (positions.at(index).x + next-x) / 2
+        }
+        let hyphen = text(font: lyric-font, size: lyric-size, weight: "regular")[-]
+        let hyphen-size = measure(hyphen)
+        place(top + left, dx: gap-center - hyphen-size.width / 2)[#hyphen]
+      }
+    }
+  ]
+}
+
+// Expand only the gaps required by visible lyric pairs. A skipped slot keeps
+// its ordinary musical width, letting surrounding words use that empty region
+// before the melody itself has to grow.
+#let apply-lyric-spacing(
+  track,
+  lyric-tracks,
+  lyric-font,
+  note-head-width,
+  min-measure-gap,
+  bar-width,
+  bar-gap,
+) = {
+  if lyric-tracks.len() == 0 {
+    track
+  } else {
+    let lyric-size = notation-size-from-head-width(note-head-width) * 0.92
+    let probe-spaced = text(font: lyric-font, size: lyric-size, weight: "regular")[x x]
+    let probe-joined = text(font: lyric-font, size: lyric-size, weight: "regular")[xx]
+    let word-gap = calc.max(measure(probe-spaced).width - measure(probe-joined).width, lyric-size * 0.20)
+    let hyphen-body = text(font: lyric-font, size: lyric-size, weight: "regular")[-]
+    let hyphen-gap = measure(hyphen-body).width + lyric-size * 0.20
+
+    // Obtain minimum event coordinates before wrapping. Width additions then
+    // pass through the existing measure-width and line-breaking machinery.
+    let positions = row-event-positions(track.measures, 0pt, min-measure-gap, bar-width, bar-gap)
+    let lyric-slots = ()
+    for (event-index, item) in positions.enumerate() {
+      if lyric-event(item.note) {
+        lyric-slots.push((event-index: event-index, x: item.x))
+      }
+    }
+    let additions = positions.map(_ => 0pt)
+
+    for lyric-track in lyric-tracks {
+      let previous = none
+      for (slot-index, item) in lyric-track.syllables.enumerate() {
+        if item.text != none {
+          let body = text(font: lyric-font, size: lyric-size, weight: "regular")[#item.text]
+          let current = (
+            event-index: lyric-slots.at(slot-index).event-index,
+            x: lyric-slots.at(slot-index).x,
+            width: measure(body).width,
+            hyphen-after: item.hyphen-after,
+          )
+          if previous != none {
+            let added-distance = 0pt
+            for boundary in range(previous.event-index, current.event-index) {
+              added-distance += additions.at(boundary)
+            }
+            let current-distance = current.x - previous.x + added-distance
+            let separator = if previous.hyphen-after { hyphen-gap } else { word-gap }
+            let required-distance = previous.width / 2 + separator + current.width / 2
+            let deficit = required-distance - current-distance
+            let boundary-count = current.event-index - previous.event-index
+            if deficit > 0pt and boundary-count > 0 {
+              let share = deficit / boundary-count
+              for boundary in range(previous.event-index, current.event-index) {
+                additions.at(boundary) = additions.at(boundary) + share
+              }
+            }
+          }
+          previous = current
+        }
+      }
+    }
+
+    let adjusted-measures = ()
+    let event-index = 0
+    for measure-data in track.measures {
+      let notes = ()
+      for note in measure-data.notes {
+        notes.push(note + (trailing-width: note.trailing-width + additions.at(event-index),))
+        event-index += 1
+      }
+      adjusted-measures.push(measure-data + (notes: notes,))
+    }
+    track + (measures: adjusted-measures,)
+  }
+}
+
 // Distribute remaining width, reserve shared vertical extents, then overlay
 // row-level slur/tie fragments above independently rendered measures.
 #let render-row(
@@ -797,6 +934,8 @@
   dot-radius: 0.7pt,
   dot-gap: 0.6pt,
   link-fragments: none,
+  lyric-lines: (),
+  lyric-font: none,
   justify: true,
 ) = {
   let min-width = row-min-width(row, min-measure-gap: min-measure-gap, bar-width: bar-width, bar-gap: bar-gap)
@@ -998,6 +1137,18 @@
         #render-volta-fragment(fragment, beam-note-width, beam-thickness)
       ]
     }
+    #if lyric-lines.len() > 0 {
+      v(beam-note-width * 0.42)
+      stack(dir: ttb, spacing: beam-note-width * 0.20,
+        ..lyric-lines.map(items => render-lyric-line(
+          items,
+          event-positions,
+          line-width,
+          beam-note-width,
+          lyric-font,
+        )),
+      )
+    }
   ]
 }
 
@@ -1071,14 +1222,32 @@
   row-gap,
   justify-last: false,
   first-indent: 0pt,
-) = {
+  lyric-tracks: (),
+  lyric-font: none,
+) = context {
+  let lyric-capacity = row-lyric-slot-count(track.measures)
+  for lyric-track in lyric-tracks {
+    assert(
+      lyric-track.syllables.len() <= lyric-capacity,
+      message: "lyrics contain more items than the melody has main-note slots",
+    )
+  }
+  let spaced-track = apply-lyric-spacing(
+    track,
+    lyric-tracks,
+    lyric-font,
+    beam-note-width,
+    min-measure-gap,
+    bar-width,
+    bar-gap,
+  )
   let first-line-width = calc.max(line-width - first-indent, beam-note-width)
 
   // Current limitation: every melody track wraps independently. Future
   // multi-voice support should lift wrapping to score/system level so all
   // tracks share the same measure ranges per system.
   let rows = wrap-measures(
-    track.measures,
+    spaced-track.measures,
     line-width,
     first-line-width: first-line-width,
     min-measure-gap: min-measure-gap,
@@ -1087,7 +1256,7 @@
   )
 
   let track-items = ()
-  for measure in track.measures {
+  for measure in spaced-track.measures {
     for note in measure.notes {
       for item in event-link-items(note) { track-items.push(item) }
     }
@@ -1098,6 +1267,20 @@
   for row in rows {
     row-starts.push(note-offset)
     note-offset += row-link-anchor-count(row)
+  }
+
+  let lyric-offsets = lyric-tracks.map(_ => 0)
+  let row-lyric-lines = ()
+  for row in rows {
+    let lyric-count = row-lyric-slot-count(row)
+    let lines = ()
+    for (lyric-index, lyric-track) in lyric-tracks.enumerate() {
+      let start = calc.min(lyric-offsets.at(lyric-index), lyric-track.syllables.len())
+      let end = calc.min(start + lyric-count, lyric-track.syllables.len())
+      lyric-offsets.at(lyric-index) = lyric-offsets.at(lyric-index) + lyric-count
+      lines.push(lyric-track.syllables.slice(start, end))
+    }
+    row-lyric-lines.push(lines)
   }
 
   stack(dir: ttb, spacing: row-gap,
@@ -1120,6 +1303,8 @@
         dot-radius: dot-radius,
         dot-gap: dot-gap,
         link-fragments: fragments,
+        lyric-lines: row-lyric-lines.at(index),
+        lyric-font: lyric-font,
         justify: justify-last or index < rows.len() - 1,
       )
 

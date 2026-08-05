@@ -557,6 +557,33 @@
   } else { "melody" }
 }
 
+// Lyrics consume one main-note slot per item. Whitespace always separates
+// items; an ASCII hyphen additionally separates English syllables while
+// remembering that a visible hyphen belongs between the resulting items.
+#let parse-lyrics(source) = {
+  let items = ()
+  let tokens = source
+    .replace(regex("\\s+"), " ")
+    .split(" ")
+    .filter(token => token != "" and token != "|")
+
+  for token in tokens {
+    if token == "_" {
+      items.push((text: none, hyphen-after: false))
+    } else {
+      let parts = token.split("-")
+      assert(parts.all(part => part != ""), message: "lyric hyphens must separate two non-empty syllables")
+      for (index, part) in parts.enumerate() {
+        items.push((
+          text: if part == "_" { none } else { part },
+          hyphen-after: index < parts.len() - 1,
+        ))
+      }
+    }
+  }
+  items
+}
+
 #let score-tokens(score) = {
   let raw-tokens = group-text(score)
     .replace(regex("\\r?\\n"), " ")
@@ -574,10 +601,18 @@
   attach-standalone-link-marks(tokens)
 }
 
-#let parse-track(group, quarter-width, eighth-width, short-width, sort-chords, final-bar: true, compact: false) = (
-  kind: group-kind(group), source: group-text(group),
-  measures: parse-measures(score-tokens(group), quarter-width, eighth-width, short-width, sort-chords: sort-chords, final-bar: final-bar, compact: compact),
-)
+#let parse-track(group, quarter-width, eighth-width, short-width, sort-chords, final-bar: true, compact: false) = {
+  let kind = group-kind(group)
+  let source = group-text(group)
+  if kind == "lyrics" {
+    (kind: kind, source: source, syllables: parse-lyrics(source), measures: ())
+  } else {
+    (
+      kind: kind, source: source, syllables: (),
+      measures: parse-measures(score-tokens(group), quarter-width, eighth-width, short-width, sort-chords: sort-chords, final-bar: final-bar, compact: compact),
+    )
+  }
+}
 
 #let parse-score(groups, quarter-width, eighth-width, short-width, sort-chords, final-bar: true, compact: false) = (
   tracks: groups.map(group => parse-track(group, quarter-width, eighth-width, short-width, sort-chords, final-bar: final-bar, compact: compact)),

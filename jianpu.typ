@@ -14,7 +14,12 @@
   sort-chords: true,
   justify-last: false,
   first-indent: 24pt,
-) = {
+  lyrics-font: none,
+) = context {
+  // Capture the surrounding document font before the notation switches to
+  // its dedicated numeral font. Lyrics should follow body typography.
+  let body-font = text.font
+  let actual-lyrics-font = if lyrics-font == none { body-font } else { lyrics-font }
   set text(font: font, size: size, weight: "bold")
 
   // Internal geometry stays private even though its calculation now lives in
@@ -27,16 +32,27 @@
     geometry.short-width,
     sort-chords,
   )
-  let melody-tracks = score.tracks.filter(track => track.kind == "melody")
+  let systems = ()
+  let current = none
+  for track in score.tracks {
+    if track.kind == "melody" {
+      if current != none { systems.push(current) }
+      current = (melody: track, lyrics: ())
+    } else if track.kind == "lyrics" {
+      assert(current != none, message: "a lyrics track must follow a melody track")
+      current = current + (lyrics: current.lyrics + (track,),)
+    }
+  }
+  if current != none { systems.push(current) }
 
   layout(available => {
-    // For now, multiple melody tracks are rendered one after another. This is
-    // deliberate: the parser already has score/tracks, but system-level
-    // alignment across tracks is not implemented yet.
+    // A lyrics track belongs to the nearest preceding melody track. Multiple
+    // melody systems still wrap independently until multi-voice alignment is
+    // implemented above this layer.
     stack(dir: ttb, spacing: geometry.group-gap,
-      ..melody-tracks.map(track => {
+      ..systems.map(system => {
         render-track(
-          track,
+          system.melody,
           available.width,
           geometry.min-measure-gap,
           geometry.bar-width,
@@ -49,6 +65,8 @@
           geometry.row-gap,
           justify-last: justify-last,
           first-indent: first-indent,
+          lyric-tracks: system.lyrics,
+          lyric-font: actual-lyrics-font,
         )
       }),
     )
