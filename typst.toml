@@ -3,5 +3,5 @@ name = "jianpu"
 version = "0.1.0"
 entrypoint = "jianpu.typ"
 authors = ["unbored"]
-license = "MIT"
+license = "Apache-2.0"
 description = "A minimal Jianpu renderer for Typst."
