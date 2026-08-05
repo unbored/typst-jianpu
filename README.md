@@ -13,7 +13,17 @@
 
 当然我还是不懂Rust，但是我们有Codex。
 
-至于还是想五线谱和简谱混排、想输出midi、想自动检查时值错误等功能的，jianpu-ly依然是为数不多的选择。
+至于还是想五线谱和简谱混排、想输出midi、想自动检查时值错误等等额外功能的，jianpu-ly依然是为数不多的选择。现在网上也越来越多免费的简谱编辑平台了，可喜可贺。
+
+## 样张
+
+![Jianpu 一页综合样张](showcase.png)
+
+样张源码位于 [`examples/showcase.typ`](examples/showcase.typ)。重新生成图片：
+
+```console
+typst compile --root . examples/showcase.typ showcase.png
+```
 
 ## 使用方式
 
@@ -128,13 +138,13 @@ raw 的语言标记用于声明 track 类型。`lyrics` 会附着到它前面最
 
 编译视觉测试：
 
-```powershell
-D:\tools\typst\typst.exe compile --root . tests\visual.typ tests\visual.pdf
+```console
+typst compile --root . tests/visual.typ tests/visual.pdf
 ```
 
 编译示例：
 
-```powershell
-D:\tools\typst\typst.exe compile --root . examples\basic.typ examples\basic.pdf
-D:\tools\typst\typst.exe compile --root . examples\beams.typ examples\beams.pdf
+```console
+typst compile --root . examples/basic.typ examples/basic.pdf
+typst compile --root . examples/beams.typ examples/beams.pdf
 ```
