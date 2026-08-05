@@ -201,7 +201,7 @@ t3[g[6 7] 1 2]/ 3 | t3[4 5 g<[6 7]]/ 1 |
   first-indent: 0pt,
   ```melody
   1 ^"dolce cantabile" 2' 3( 4) | 5// _"轻声进入" 6,// 7,,// 1'// |
-  2 3 4 5 ^"This annotation begins at the note head and wraps at the page edge when necessary" |
+  2 3 4 5 ^"天生我才必有用，千金散尽还复来，烹牛宰羊且为乐，会须一饮三百杯" |
   ```,
   ```melody
   1 ^"dolce cantabile" 2' 3( 4) | 5// _"轻声进入" 6,// 7,,// 1'// |
