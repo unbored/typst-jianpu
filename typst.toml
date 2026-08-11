@@ -2,6 +2,17 @@
 name = "jianpu"
 version = "0.1.0"
 entrypoint = "jianpu.typ"
-authors = ["unbored"]
+authors = ["unbored <@unbored>"]
 license = "Apache-2.0"
-description = "A minimal Jianpu renderer for Typst."
+description = "Typeset Jianpu scores with lyrics and expressive markings."
+repository = "https://github.com/unbored/typst-jianpu"
+keywords = ["jianpu", "numbered-music-notation", "music-notation"]
+categories = ["visualization"]
+disciplines = ["music"]
+compiler = "0.14.2"
+exclude = [
+  "/docs/**",
+  "/examples/**",
+  "/tests/**",
+  "/showcase.png",
+]

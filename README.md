@@ -1,6 +1,8 @@
-# jianpu
+# Jianpu
 
-一个正在开发中的 Typst 简谱排版插件。
+[English](README.en.md) | 简体中文
+
+一个正在开发中的 Typst 简谱排版包，包名和公开排版命令均为 `jianpu`。
 
 内部实现按职责拆分：`parser.typ` 解析输入，`geometry.typ` 提供全局尺寸，`glyphs.typ` 绘制局部记谱图元，`links.typ` 处理横向坐标与连线，`layout.typ` 负责小节、行和 track 渲染，`title.typ` 提供曲谱标题布局。`jianpu.typ` 只保留公开入口。
 
@@ -27,12 +29,20 @@ typst compile --root . examples/showcase.typ showcase.png
 
 ## 使用方式
 
+从 Typst Universe 导入：
+
 ```typst
-#import "jianpu.typ": jianpu, jianpu-inline, jianpu-title
+#import "@preview/jianpu:0.1.0": jianpu, jianpu-inline, jianpu-title
 
 #jianpu(```melody
 1 2 3 4 | 5/ 6/ 7/ 1/ |
 ```)
+```
+
+直接克隆仓库进行本地开发时，可将导入行临时改为：
+
+```typst
+#import "jianpu.typ": jianpu, jianpu-inline, jianpu-title
 ```
 
 曲谱标题可以包含居中的标题、副标题，以及左右两块信息区：
@@ -74,7 +84,7 @@ typst compile --root . examples/showcase.typ showcase.png
 
 `jianpu-inline` 提供 `font`、`sort-chords` 和 `compact` 可选参数；字号自动继承调用位置的文字字号，`compact` 默认关闭。
 
-变音记号和附着音乐符号使用 `Bravura Text` 字体。使用这些符号前需确保 Typst 能发现该字体；本地既可以安装字体，也可以在编译时通过 `--font-path` 指定字体目录。
+简谱数字默认使用 `Arial`，变音记号和附着音乐符号使用 `Bravura Text`。这两种字体不会随 Universe 包分发，使用前需确保 Typst 能发现它们；本地既可以安装字体，也可以在编译时通过 `--font-path` 指定字体目录。也可以通过 `font` 参数替换数字字体。
 
 raw 的语言标记用于声明 track 类型。`lyrics` 会附着到它前面最近的一条 `melody`，并与旋律使用相同的换行和音符中心坐标。
 
@@ -135,6 +145,8 @@ raw 的语言标记用于声明 track 类型。`lyrics` 会附着到它前面最
 歌词默认继承调用位置的正文字体，不使用简谱数字的 `font` 参数；也可以通过 `lyrics-font` 单独指定。歌词以空白分隔音符位置，中英文规则相同。没有空格的内容作为整体与一个音符居中；ASCII 连字符还会拆分英文音节，并在相邻音节之间显示连字符；下划线 `_` 消耗一个音符位置但不显示文字。小节线 `|` 只用于提高源码可读性，不消耗歌词位置。歌词的实际盒宽参与最小行宽计算：普通词组之间至少保留一个西文空格，连字符音节之间为连字符本身留出空间；`_` 不建立文字盒，因此前后歌词可以自然利用空音符提供的距离。
 
 ## 开发
+
+仓库中的示例和测试使用相对路径导入，以便直接检验当前工作区源码；面向使用者的代码应使用 `@preview/jianpu:0.1.0`。
 
 编译视觉测试：
 
