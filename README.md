@@ -6,6 +6,10 @@
 
 内部实现按职责拆分：`parser.typ` 解析输入，`geometry.typ` 提供全局尺寸，`glyphs.typ` 绘制局部记谱图元，`links.typ` 处理横向坐标与连线，`layout.typ` 负责小节、行和 track 渲染，`title.typ` 提供曲谱标题布局。`jianpu.typ` 只保留公开入口。
 
+## 字体要求
+
+简谱数字默认使用 `Arial`，变音记号和附着音乐符号使用 `Bravura Text`。这两种字体不会随 Universe 包分发，使用前需确保 Typst 能发现它们；本地既可以安装字体，也可以在编译时通过 `--font-path` 指定字体目录。也可以通过 `font` 参数替换数字字体。
+
 ## 为什么
 目前并没有一个完美的开源简谱编排软件。最接近理想状态的应该是jianpu-ly，我也有部分参与。众所周知，lilypond是一个优秀的乐谱编排工具，五线谱非常精美，可以跟专业软件掰手腕；然而天然不支持简谱，其排版底层逻辑也似乎天然与简谱不太兼容；也众所不周知，lilypond扩展所用的语言为Scheme，一个看一眼就劝退的语言，彻底打消了我写lilypond扩展的想法。jianpu-ly基本没有用到lilypond的扩展，而是用python套了一层壳，以及一系列奇技淫巧达成了排版简谱的目的，不得不说也算是成功；但这种绕弯实现目的的方案，意味着各种微调和版本不兼容，目前jianpu-ly已经面临如此困境。
 
@@ -83,8 +87,6 @@ typst compile --root . examples/showcase.typ showcase.png
 - `lyrics-font`：歌词字体；默认 `none`，即继承调用位置的正文字体。
 
 `jianpu-inline` 提供 `font`、`sort-chords` 和 `compact` 可选参数；字号自动继承调用位置的文字字号，`compact` 默认关闭。
-
-简谱数字默认使用 `Arial`，变音记号和附着音乐符号使用 `Bravura Text`。这两种字体不会随 Universe 包分发，使用前需确保 Typst 能发现它们；本地既可以安装字体，也可以在编译时通过 `--font-path` 指定字体目录。也可以通过 `font` 参数替换数字字体。
 
 raw 的语言标记用于声明 track 类型。`lyrics` 会附着到它前面最近的一条 `melody`，并与旋律使用相同的换行和音符中心坐标。
 

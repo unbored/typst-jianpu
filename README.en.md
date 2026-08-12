@@ -6,6 +6,10 @@ Jianpu is a work-in-progress package for typesetting numbered musical notation i
 
 ![Jianpu showcase](showcase.png)
 
+## Font Requirements
+
+Numerals use Arial by default. Accidentals and attached music symbols use Bravura Text. These fonts are not bundled with the package, so they must be installed or supplied through Typst's `--font-path` option. The numeral font can be changed with the `font` parameter.
+
 ## Quick Start
 
 ```typst
@@ -65,10 +69,6 @@ See the [Chinese README](README.md) for the complete notation reference and curr
   ),
 )
 ```
-
-## Fonts
-
-Numerals use Arial by default. Accidentals and attached music symbols use Bravura Text. These fonts are not bundled with the package, so they must be installed or supplied through Typst's `--font-path` option. The numeral font can be changed with the `font` parameter.
 
 ## Development
 
