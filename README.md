@@ -85,6 +85,7 @@ typst compile --root . examples/showcase.typ showcase.png
 - `justify-last`：是否对齐最后一行，默认关闭；其余各行始终两端对齐。
 - `first-indent`：首行缩进，默认 `24pt`。
 - `lyrics-font`：歌词字体；默认 `none`，即继承调用位置的正文字体。
+- `tracks`：外部附属 raw 类型的处理器字典，默认空；内置的旋律和歌词不需要注册。
 
 `jianpu-inline` 提供 `font`、`sort-chords` 和 `compact` 可选参数；字号自动继承调用位置的文字字号，`compact` 默认关闭。
 
@@ -100,6 +101,34 @@ raw 的语言标记用于声明 track 类型。`lyrics` 会附着到它前面最
   ```,
 )
 ```
+
+## 扩展附属 raw
+
+`tracks` 按语言标记注册外部扩展，简谱包不依赖扩展包。每条附属 raw 与前面最近的旋律对齐；一项对应一个主音符，跟随旋律换行，并按实际宽高预留空间。倚音和延音横线不消耗附属位置，和弦整体占一个位置。
+
+例如同时使用本仓库与同级的 `typst-jianzi` 仓库：
+
+````typst
+#import "jianpu.typ": jianpu
+#import "../typst-jianzi/jianzi.typ": init-track
+
+#let qin-score = jianpu.with(tracks: (jianzi: init-track()))
+
+#qin-score(
+  ```melody
+  1 2 3 4 |
+  ```,
+  ```jianzi
+  大九挑七 a{琴} g1{大九,a{琴,九}} _
+  ```,
+)
+````
+
+本地跨仓库示例需要将编译根目录设为上层目录，例如 `typst compile --root .. tests/jianzi.typ tests/jianzi.pdf`。`jianzi` 中空白分隔顶层项，`_` 跳过一个位置，`a{...}` 竖排最多四个注释减字，`gN{...}` 横排并以第 `N` 个成员居中对齐（从 `0` 起算）。`g{...}` 等同于 `g0{...}`，`a` 可嵌套于 `g`；组分隔符只接受英文逗号。
+
+通用扩展描述包含 `parse(source)` 和 `render-item(data)`：前者返回数组（`none` 表示跳过），后者在 Typst context 中返回 `(body: content, anchor-x: length)`。`body` 应是内部布局完成的盒子，`anchor-x` 相对盒子左缘，采用缩放前坐标。可配置 `height`（默认 `1em`）和 `gap`（默认 `0.2em`），其中 `em` 按简谱字号计算；`init-track()` 默认提供 `height: 2em`。
+
+单字注释的上半部留白由扩展保留，简谱侧只缩放整个盒子。相邻内容使用锚点两侧的实际宽度避让；允许利用空位置及超出简谱行左右边缘。未注册的 raw 类型和超过主音符位置数的输入会报错。
 
 ## 当前记谱规则
 

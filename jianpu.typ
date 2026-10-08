@@ -4,6 +4,7 @@
 #import "src/geometry.typ": metrics
 #import "src/layout.typ": render-inline-track, render-track
 #import "src/title.typ": render-title
+#import "src/tracks.typ": prepare-attached-track, validate-track-descriptors
 
 #let jianpu-title = render-title
 
@@ -15,12 +16,15 @@
   justify-last: false,
   first-indent: 24pt,
   lyrics-font: none,
+  tracks: (:),
 ) = context {
   // Capture the surrounding document font before the notation switches to
   // its dedicated numeral font. Lyrics should follow body typography.
   let body-font = text.font
   let actual-lyrics-font = if lyrics-font == none { body-font } else { lyrics-font }
+  let resolved-size = size.abs + size.em * text.size
   set text(font: font, size: size, weight: "bold")
+  validate-track-descriptors(tracks)
 
   // Internal geometry stays private even though its calculation now lives in
   // a dedicated module.
@@ -31,6 +35,7 @@
     geometry.eighth-width,
     geometry.short-width,
     sort-chords,
+    attached-kinds: tracks.keys(),
   )
   let systems = ()
   let current = none
@@ -41,6 +46,10 @@
     } else if track.kind == "lyrics" {
       assert(current != none, message: "a lyrics track must follow a melody track")
       current = current + (lyrics: current.lyrics + (track,),)
+    } else {
+      assert(current != none, message: "an attached track must follow a melody track")
+      let prepared = prepare-attached-track(track, tracks.at(track.kind), body-font, resolved-size)
+      current = current + (lyrics: current.lyrics + (prepared,),)
     }
   }
   if current != none { systems.push(current) }

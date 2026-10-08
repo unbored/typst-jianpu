@@ -1003,23 +1003,32 @@
 // Lyrics use the exact event centers already shared by note heads, dots,
 // beams, and links. Long Chinese strings remain one centered item; English
 // hyphens are overlays at the midpoint between adjacent consumed slots.
+#let attached-item-body(item, lyric-size, lyric-font) = {
+  if item.text == none {
+    none
+  } else if "rendered" in item {
+    item.rendered
+  } else {
+    let body = text(font: lyric-font, size: lyric-size, weight: "regular")[#item.text]
+    let bounds = measure(body)
+    (content: body, size: bounds, anchor-x: bounds.width / 2)
+  }
+}
+
 #let render-lyric-line(items, event-positions, line-width, note-head-width, lyric-font) = context {
   let positions = event-positions.filter(item => lyric-event(item.note))
   let lyric-size = notation-size-from-head-width(note-head-width) * 0.92
-  let line-height = lyric-size * 1.25
-  let bodies = items.map(item => {
-    if item.text == none {
-      none
-    } else {
-      let body = text(font: lyric-font, size: lyric-size, weight: "regular")[#item.text]
-      (content: body, size: measure(body))
-    }
-  })
+  let bodies = items.map(item => attached-item-body(item, lyric-size, lyric-font))
+  let minimum-height = items.fold(lyric-size * 1.25,
+    (height, item) => calc.max(height, item.at("line-height", default: 0pt)))
+  let line-height = bodies.filter(body => body != none).fold(minimum-height,
+    (height, body) => calc.max(height, body.size.height))
   box(width: line-width, height: line-height)[
     #for (index, item) in items.enumerate() {
       if index < positions.len() and bodies.at(index) != none {
         let body = bodies.at(index)
-        place(top + left, dx: positions.at(index).x - body.size.width / 2)[#body.content]
+        let offset-y = if "rendered" in item { line-height - body.size.height } else { 0pt }
+        place(top + left, dx: positions.at(index).x - body.anchor-x, dy: offset-y)[#body.content]
       }
       if index < positions.len() and item.hyphen-after {
         let gap-center = if (
@@ -1082,11 +1091,13 @@
       let previous = none
       for (slot-index, item) in lyric-track.syllables.enumerate() {
         if item.text != none {
-          let body = text(font: lyric-font, size: lyric-size, weight: "regular")[#item.text]
+          let body = attached-item-body(item, lyric-size, lyric-font)
           let current = (
             event-index: lyric-slots.at(slot-index).event-index,
             x: lyric-slots.at(slot-index).x,
-            width: measure(body).width,
+            width: body.size.width,
+            anchor-x: body.anchor-x,
+            gap: body.at("gap", default: word-gap),
             hyphen-after: item.hyphen-after,
           )
           if previous != none {
@@ -1095,8 +1106,8 @@
               added-distance += additions.at(boundary)
             }
             let current-distance = current.x - previous.x + added-distance
-            let separator = if previous.hyphen-after { hyphen-gap } else { word-gap }
-            let required-distance = previous.width / 2 + separator + current.width / 2
+            let separator = if previous.hyphen-after { hyphen-gap } else { previous.gap }
+            let required-distance = previous.width - previous.anchor-x + separator + current.anchor-x
             let deficit = required-distance - current-distance
             let boundary-count = current.event-index - previous.event-index
             if deficit > 0pt and boundary-count > 0 {
@@ -1395,7 +1406,7 @@
     }
     #if lyric-lines.len() > 0 {
       v(beam-note-width * 0.42)
-      stack(dir: ttb, spacing: beam-note-width * 0.20,
+      stack(dir: ttb, spacing: notation-size-from-head-width(beam-note-width) * 0.4,
         ..lyric-lines.map(items => render-lyric-line(
           items,
           event-positions,
@@ -1488,7 +1499,7 @@
   for lyric-track in lyric-tracks {
     assert(
       lyric-track.syllables.len() <= lyric-capacity,
-      message: "lyrics contain more items than the melody has main-note slots",
+      message: lyric-track.kind + " contains more items than the melody has main-note slots",
     )
   }
   let spaced-track = apply-lyric-spacing(

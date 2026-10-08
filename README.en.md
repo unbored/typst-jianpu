@@ -39,6 +39,20 @@ Inline notation inherits the surrounding text size:
 Text before #jianpu-inline("1 2/ 3//. 4'") text after.
 ```
 
+## Custom Tracks
+
+Register an external raw language with `tracks`. The score renderer has no dependency on the extension package:
+
+```typst
+#let qin-score = jianpu.with(tracks: (jianzi: init-track()))
+```
+
+Here `init-track` comes from the separate jianzi package. Attached tracks follow the preceding melody's main-note slots and line breaks. Chords consume one slot; grace notes and extension dashes consume none.
+
+A descriptor provides `parse(source)`, returning an array with `none` for skipped slots, and `render-item(data)`, returning `(body: content, anchor-x: length)` in a Typst context. The body is a fully laid-out box, and the anchor is measured from its left edge before scaling. Optional `height` (default `1em`) and `gap` (default `0.2em`) are resolved against the score size. The jianzi adapter defaults to `2em` height.
+
+The jianzi syntax supports whitespace-separated items, `_` placeholders, vertical annotation groups `a{a,b}`, and horizontal groups `g1{a,a{b,c}}`. Reference indices start at zero; `g{...}` means `g0{...}`. Only ASCII commas are accepted. Content may extend beyond the score edges, but adjacent visible items retain their minimum gap.
+
 ## Basic Syntax
 
 - `1` to `7` represent pitched notes; `0` and `X` are also treated as notes.

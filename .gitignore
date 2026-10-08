@@ -2,3 +2,4 @@
 *.png
 !showcase.png
 scores
+.vscode

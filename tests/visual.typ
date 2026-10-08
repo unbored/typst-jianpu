@@ -1,5 +1,37 @@
 #import "../jianpu.typ": jianpu, jianpu-inline, jianpu-title
 #import "../src/parser.typ": parse-measures
+#import "../src/tracks.typ": prepare-attached-track
+#import "../src/layout.typ": apply-lyric-spacing
+#import "../src/links.typ": row-event-positions
+
+// Generic extension checks use no external package. An off-center anchor
+// must scale with the box, and _ must retain its empty main-note slot.
+#let sample-track = (
+  parse: source => source.split(" ").map(token => if token == "_" { none } else { token }),
+  render-item: data => (body: box(width: 30pt, height: 10pt)[#data], anchor-x: 5pt),
+  height: 2em,
+)
+#context {
+  set text(size: 12pt)
+  let prepared = prepare-attached-track(
+    (kind: "sample", source: "one _ two", syllables: (), measures: ()),
+    sample-track,
+    "Arial",
+    12pt,
+  )
+  let item = prepared.syllables.first().rendered
+  assert.eq(item.size.height, 24pt)
+  assert(calc.abs(item.size.width - 72pt) < 0.001pt)
+  assert(calc.abs(item.anchor-x - 12pt) < 0.001pt)
+  assert.eq(prepared.syllables.at(1).text, none)
+  assert(calc.abs(measure(item.content).width - 72pt) < 0.001pt)
+  assert.eq(measure(item.content).height, 24pt)
+  let melody = (measures: parse-measures(("1", "2", "3"), 24pt, 18pt, 12pt),)
+  let spaced = apply-lyric-spacing(melody, (prepared,), "Arial", 8.4pt, 14pt, 5pt, 6pt)
+  let positions = row-event-positions(spaced.measures, 0pt, 14pt, 5pt, 6pt)
+  let distance = positions.at(2).x - positions.at(0).x
+  assert(distance + 0.001pt >= item.size.width + item.gap)
+}
 
 // Model-only checks: these emit no content, but keep exact onset/duration
 // semantics covered by the regular visual compilation command.

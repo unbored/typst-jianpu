@@ -743,12 +743,15 @@
   attach-standalone-link-marks(tokens)
 }
 
-#let parse-track(group, quarter-width, eighth-width, short-width, sort-chords, final-bar: true, compact: false) = {
+#let parse-track(group, quarter-width, eighth-width, short-width, sort-chords, final-bar: true, compact: false, attached-kinds: ()) = {
   let kind = group-kind(group)
   let source = group-text(group)
   if kind == "lyrics" {
     (kind: kind, source: source, syllables: parse-lyrics(source), measures: ())
+  } else if kind in attached-kinds {
+    (kind: kind, source: source, syllables: (), measures: ())
   } else {
+    assert(kind == "melody", message: "unregistered raw track type: " + kind)
     (
       kind: kind, source: source, syllables: (),
       measures: parse-measures(score-tokens(group), quarter-width, eighth-width, short-width, sort-chords: sort-chords, final-bar: final-bar, compact: compact),
@@ -756,6 +759,6 @@
   }
 }
 
-#let parse-score(groups, quarter-width, eighth-width, short-width, sort-chords, final-bar: true, compact: false) = (
-  tracks: groups.map(group => parse-track(group, quarter-width, eighth-width, short-width, sort-chords, final-bar: final-bar, compact: compact)),
+#let parse-score(groups, quarter-width, eighth-width, short-width, sort-chords, final-bar: true, compact: false, attached-kinds: ()) = (
+  tracks: groups.map(group => parse-track(group, quarter-width, eighth-width, short-width, sort-chords, final-bar: final-bar, compact: compact, attached-kinds: attached-kinds)),
 )
