@@ -286,6 +286,19 @@ t3[g[6 7] 1 2]/ 3 | t3[4 5 g<[6 7]]/ 1 |
 #jianpu-title([前置降号], key: "1=bB", meter: "3/4")
 #v(1em)
 #jianpu-title([后置降号兼容], key: "1=Bb", meter: "3/4")
+#v(1em)
+#jianpu-title([定调前后保留文字], key: "正调（1 = C），慢板", meter: "2/4")
+#v(1em)
+#jianpu-title([多个定调片段], key: "原调 1=F#，转调 6=bB")
+#v(1em)
+#jianpu-title([仅文字说明], key: "散板，速度自由")
+#v(1em)
+#jianpu-title([左右补充说明], key: "1=C", meter: "4/4",
+  authors: ((name: [张三], role: [作曲]),),
+  left: [慢板，#emph[从容地]], right: [据古谱整理],
+)
+#v(1em)
+#jianpu-title([仅自定义信息], left: "自由节拍", right: [演奏说明])
 
 == 行内简谱
 

@@ -51,7 +51,7 @@ Here `init-track` comes from the separate jianzi package. Attached tracks follow
 
 A descriptor provides `parse(source)`, returning an array with `none` for skipped slots, and `render-item(data)`, returning `(body: content, anchor-x: length)` in a Typst context. The body is a fully laid-out box, and the anchor is measured from its left edge before scaling. Optional `height` (default `1em`) and `gap` (default `0.2em`) are resolved against the score size. The jianzi adapter defaults to `2em` height.
 
-The jianzi syntax supports whitespace-separated items, `_` placeholders, vertical annotation groups `a{a,b}`, and horizontal groups `g1{a,a{b,c}}`. Reference indices start at zero; `g{...}` means `g0{...}`. Only ASCII commas are accepted. Content may extend beyond the score edges, but adjacent visible items retain their minimum gap.
+The jianzi syntax supports whitespace-separated items, `_` placeholders, vertical annotation groups `a[a,b]`, and horizontal groups `g1[a,a[b,c]]`. Reference indices start at zero; `g[...]` means `g0[...]`. Only ASCII commas are accepted. Content may extend beyond the score edges, but adjacent visible items retain their minimum gap.
 
 ## Basic Syntax
 
@@ -70,6 +70,8 @@ The jianzi syntax supports whitespace-separated items, `_` placeholders, vertica
 See the [Chinese README](README.md) for the complete notation reference and current limitations.
 
 ## Title
+
+Optional `left` and `right` accept strings or Typst content. They appear below the key/meter and authors respectively, inherit the surrounding text style, and can be used without the existing metadata fields.
 
 ```typst
 #jianpu-title(

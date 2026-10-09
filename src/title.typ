@@ -18,12 +18,7 @@
   else { "" }
 }
 
-#let render-key(source) = {
-  assert(type(source) == str, message: "key must use a string such as \"1=C\"")
-  let parts = source.split("=")
-  assert(parts.len() == 2, message: "key must use degree=tonic format")
-  let degree = parts.at(0)
-  let tonic-source = parts.at(1)
+#let render-key-signature(degree, tonic-source) = {
   let accidental = key-accidental(tonic-source)
   let tonic = key-tonic-name(tonic-source, accidental)
   assert(degree.len() > 0 and tonic.len() > 0, message: "key fields must not be empty")
@@ -33,6 +28,19 @@
   // Jianpu convention places the accidental before the tonic (`1=♯C`); a
   // postfix ASCII input such as `1=C#` is accepted but normalized here.
   box[#text(font: "Arial", weight: "bold")[#degree]#h(0.25em)#text(font: "New Computer Modern", weight: "bold")[=]#h(0.25em)#if accidental != none { text(font: "Bravura Text", fallback: false, size: 1.4em)[#key-accidental-text(accidental)] }#text(font: "New Computer Modern", weight: "bold")[#tonic]]
+}
+
+#let render-key(source) = {
+  assert(type(source) == str, message: "key must use a string such as \"1=C\"")
+  let signatures = source.matches(regex("([0-9]+)\\s*=\\s*([#b][A-G]|[A-G][#b]?)"))
+  let result = []
+  let offset = 0
+  for signature in signatures {
+    result += [#source.slice(offset, signature.start)]
+    result += render-key-signature(signature.captures.at(0), signature.captures.at(1))
+    offset = signature.end
+  }
+  result + [#source.slice(offset)]
 }
 
 #let render-meter(source) = {
@@ -55,6 +63,8 @@
   key: none,
   meter: none,
   authors: (),
+  left: none,
+  right: none,
 ) = {
   let headings = (
     text(size: 1.5em, weight: "bold")[#title],
@@ -71,29 +81,34 @@
   let signature-items = ()
   if key != none { signature-items.push(render-key(key)) }
   if meter != none { signature-items.push(render-meter(meter)) }
+  let left-lines = ()
+  if signature-items.len() > 0 {
+    left-lines.push(grid(
+      columns: signature-items.len(),
+      column-gutter: 0.7em,
+      align: horizon,
+      ..signature-items,
+    ))
+  }
+  if left != none { left-lines.push([#left]) }
   let author-lines = ()
   for author in authors {
     author-lines.push([#author.name #h(0.35em) #author.role])
   }
 
-  if signature-items.len() > 0 or author-lines.len() > 0 {
+  if right != none { author-lines.push([#right]) }
+
+  if left-lines.len() > 0 or author-lines.len() > 0 {
     // Semantic metadata stays internally mapped to the conventional layout:
     // key/meter on the left, contributor names and roles on the right.
     parts.push(grid(
       columns: (1fr, 1fr),
       gutter: 1em,
       align: (top + start, top + end),
-      if signature-items.len() == 0 {
+      if left-lines.len() == 0 {
         []
       } else {
-        // A one-row grid can center cells vertically, making the meter's
-        // fraction bar align with the optical middle of the key signature.
-        grid(
-          columns: signature-items.len(),
-          column-gutter: 0.7em,
-          align: horizon,
-          ..signature-items,
-        )
+        stack(dir: ttb, spacing: 0.35em, ..left-lines)
       },
       if author-lines.len() == 0 {
         []
