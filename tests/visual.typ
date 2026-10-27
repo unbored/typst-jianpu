@@ -1,7 +1,7 @@
 #import "../jianpu.typ": jianpu, jianpu-inline, jianpu-title
 #import "../src/parser.typ": parse-measures
 #import "../src/tracks.typ": prepare-attached-track
-#import "../src/layout.typ": apply-lyric-spacing
+#import "../src/layout.typ": apply-lyric-spacing, row-lyric-slot-count
 #import "../src/links.typ": row-event-positions
 
 // Generic extension checks use no external package. An off-center anchor
@@ -48,6 +48,17 @@
 #assert(duration-notes.at(2).duration == (num: 1, den: 12))
 #assert(duration-model.at(0).duration == (num: 11, den: 16))
 
+#let tied-model = parse-measures(
+  ("1~", "|", "g[5 6]", "1~", "|", "1", "2(", "3)", "c[1 3]~", "|", "c[1 3]", "4"),
+  24pt, 18pt, 12pt,
+)
+#assert.eq(row-lyric-slot-count(tied-model), 5)
+#assert.eq(row-lyric-slot-count(tied-model.slice(1, 2)), 0)
+#assert.eq(tied-model.at(1).notes.at(1).tie-continuation, true)
+#assert.eq(tied-model.at(2).notes.first().tie-continuation, true)
+#assert.eq(tied-model.at(3).notes.first().tie-continuation, true)
+#assert.eq(tied-model.at(3).notes.last().tie-continuation, false)
+
 #set text(font: (
   "Libertinus Serif",
   "Noto Serif CJK KR",
@@ -65,6 +76,22 @@
 )
 
 = 核心功能测试
+
+== 延音续音不占附属轨道位置
+
+#block(width: 65mm)[
+  #jianpu(first-indent: 0pt, tracks: (sample: sample-track),
+    ```melody
+    1~ | g[5 6] 1~ | 1 2( 3) c[1 3]~ | c[1 3] 4 |
+    ```,
+    ```lyrics
+    春 风 又 来 了
+    ```,
+    ```sample
+    A _ B C D
+    ```,
+  )
+]
 
 == 换行测试
 

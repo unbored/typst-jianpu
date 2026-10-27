@@ -47,7 +47,7 @@ Register an external raw language with `tracks`. The score renderer has no depen
 #let qin-score = jianpu.with(tracks: (jianzi: init-track()))
 ```
 
-Here `init-track` comes from the separate jianzi package. Attached tracks follow the preceding melody's main-note slots and line breaks. Chords consume one slot; grace notes and extension dashes consume none.
+Here `init-track` comes from the separate jianzi package. Attached tracks follow the preceding melody's main-note slots and line breaks. Chords consume one slot; grace notes, extension dashes, and tied continuation notes consume none. This applies to lyrics and all custom tracks, including tie chains across bars and systems. Do not insert `_` for tied continuations. Slurs do not change slot counting.
 
 A descriptor provides `parse(source)`, returning an array with `none` for skipped slots, and `render-item(data)`, returning `(body: content, anchor-x: length)` in a Typst context. The body is a fully laid-out box, and the anchor is measured from its left edge before scaling. Optional `height` (default `1em`) and `gap` (default `0.2em`) are resolved against the score size. The jianzi adapter defaults to `2em` height.
 

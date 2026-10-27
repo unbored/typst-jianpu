@@ -673,13 +673,23 @@
     ))
   }
   let combined = ()
+  // Mark continuations before wrapping so every attached track shares the
+  // same slots, including ties across barlines and chains interrupted by grace groups.
+  let pending-tie = false
   for (index, measure) in enriched.enumerate() {
+    let notes = ()
+    for note in measure.notes {
+      let continuation = note.kind != "grace" and pending-tie
+      notes.push(note + (tie-continuation: continuation,))
+      if note.kind != "grace" { pending-tie = note.tie-start > 0 }
+    }
     let repeat-both = measure.repeat-end and index + 1 < enriched.len() and enriched.at(index + 1).repeat-start
     // A repeat beginning with the whole track needs no opening sign: the end
     // repeat naturally sends playback back to the beginning. Later starts
     // remain visible unless they share a combined boundary with a prior end.
     let start-visible = measure.repeat-start and index > 0 and not enriched.at(index - 1).repeat-end
     combined.push(measure + (
+      notes: notes,
       repeat-both: repeat-both,
       repeat-start-visible: start-visible,
     ))
@@ -699,7 +709,7 @@
   } else { "melody" }
 }
 
-// Lyrics consume one main-note slot per item. Whitespace always separates
+// Lyrics consume one untied main-note slot per item. Whitespace always separates
 // items; an ASCII hyphen additionally separates English syllables while
 // remembering that a visible hyphen belongs between the resulting items.
 #let parse-lyrics(source) = {

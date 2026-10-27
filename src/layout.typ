@@ -789,7 +789,10 @@
   )
 }
 
-#let lyric-event(note) = note.kind != "grace" and not is-extension-note(note)
+#let lyric-event(note) = (
+  note.kind != "grace" and not is-extension-note(note) and
+    not note.at("tie-continuation", default: false)
+)
 
 #let row-lyric-slot-count(row) = {
   let count = 0
@@ -1308,6 +1311,9 @@
   // A notation row and all of its attached text form one pagination unit;
   // otherwise a lower annotation may be orphaned at the next page top.
   block(width: 100%, breakable: false)[
+    // Internal vertical gaps are explicit; prose block spacing must not add
+    // another gap between the notation grid and the attached tracks.
+    #set block(spacing: 0pt)
     #grid(columns: columns, gutter: 0pt, ..cells)
     // Links are row-level overlays, so a span may cross a bar line without
     // changing measure widths or the note/beam alignment underneath.
@@ -1405,7 +1411,7 @@
       v(annotation-bottom-extra)
     }
     #if lyric-lines.len() > 0 {
-      v(beam-note-width * 0.42)
+      v(notation-size-from-head-width(beam-note-width) * 0.3)
       stack(dir: ttb, spacing: notation-size-from-head-width(beam-note-width) * 0.4,
         ..lyric-lines.map(items => render-lyric-line(
           items,
